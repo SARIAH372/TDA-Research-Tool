@@ -275,7 +275,8 @@ def tda_feature_block(dgms, grid_len=64, topk=8, k_levels=3):
 
 # ============================
 # Persistence images (multi-scale, H1/H2)
-# ============================
+# topo.py — REPLACE these two functions exactly: _fit_imager and fit_imagers_multiscale
+
 def _fit_imager(train_dgms, pixel_size=0.05):
     births, deaths = [], []
     for dgm in train_dgms:
@@ -286,44 +287,52 @@ def _fit_imager(train_dgms, pixel_size=0.05):
         deaths.append(bars[:, 1])
 
     if len(births) == 0:
-        birth_range, pers_range = (0.0, 1.0), (0.0, 1.0)
+        birth_range = (0.0, 1.0)
+        pers_range = (0.0, 1.0)
     else:
-        b = np.concatenate(births)
-        d = np.concatenate(deaths)
-        p = d - b
-        b0, b1 = np.quantile(b, [0.02, 0.98])
-        p0, p1 = np.quantile(p, [0.02, 0.98])
+        b = np.concatenate(births).astype(np.float64)
+        d = np.concatenate(deaths).astype(np.float64)
+        p = (d - b).astype(np.float64)
+
+        q_b = np.quantile(b, [0.02, 0.98])
+        q_p = np.quantile(p, [0.02, 0.98])
+
+        b0 = float(q_b[0]); b1 = float(q_b[1])
+        p0 = float(q_p[0]); p1 = float(q_p[1])
+
         birth_range = (float(max(0.0, b0)), float(b1))
         pers_range = (float(max(0.0, p0)), float(p1))
 
     pim = PersistenceImager(pixel_size=float(pixel_size))
 
+    # --- persim API compatibility (NO keyword args) ---
+    # Build a tiny "fake" diagram to force range inference
+    bmin, bmax = birth_range
+    pmin, pmax = pers_range
+    fake = np.array(
+        [
+            [bmin, bmin + max(pmin, 1e-6)],
+            [bmax, bmax + max(pmax, 1e-6)],
+        ],
+        dtype=np.float32,
+    )
+
+    # Some persim versions accept pim.fit(diagrams), some accept list-of-diagrams
     try:
-        pim.fit(birth_range=birth_range, pers_range=pers_range)
-    except TypeError:
-        bmin, bmax = birth_range
-        pmin, pmax = pers_range
-        fake = np.array([[bmin, bmin + pmin], [bmax, bmax + pmax]], dtype=np.float32)
-        try:
-            pim.fit(fake)
-        except Exception:
-            pim.fit([fake])
+        pim.fit(fake)
+    except Exception:
+        pim.fit([fake])
 
     return pim
+
 
 def fit_imagers_multiscale(dgms, pixel_sizes=(0.03, 0.05, 0.08)):
     h1 = [d[1] for d in dgms]
     h2 = [d[2] for d in dgms]
-    pim_h1 = [_fit_imager(h1, ps) for ps in pixel_sizes]
-    pim_h2 = [_fit_imager(h2, ps) for ps in pixel_sizes]
+    pim_h1 = [_fit_imager(h1, ps) for ps in tuple(pixel_sizes)]
+    pim_h2 = [_fit_imager(h2, ps) for ps in tuple(pixel_sizes)]
     return pim_h1, pim_h2
 
-def diagram_to_pi(pim, dgm):
-    bars = finite_bars(dgm)
-    if len(bars) == 0:
-        img = np.zeros(pim.resolution)
-        return img.ravel()
-    return pim.transform(bars).ravel()
 
 def diagram_to_pis(pims, dgm):
     out = []
@@ -664,3 +673,4 @@ def mapper_spectral_features(G, k_eigs=12):
     tri = float(np.trace(A @ A @ A) / 6.0) if n else 0.0
     stats = np.array([n_nodes, n_edges, avg_deg, max_deg, conn, tri], dtype=np.float32)
     return np.concatenate([out, stats], axis=0).astype(np.float32)
+
