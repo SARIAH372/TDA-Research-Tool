@@ -277,6 +277,11 @@ def tda_feature_block(dgms, grid_len=64, topk=8, k_levels=3):
 # Persistence images (multi-scale, H1/H2)
 # topo.py — REPLACE these two functions exactly: _fit_imager and fit_imagers_multiscale
 
+# topo.py — ADD/REPLACE these 3 functions exactly:
+# 1) _fit_imager
+# 2) diagram_to_pi
+# 3) diagram_to_pis
+
 def _fit_imager(train_dgms, pixel_size=0.05):
     births, deaths = [], []
     for dgm in train_dgms:
@@ -294,19 +299,21 @@ def _fit_imager(train_dgms, pixel_size=0.05):
         d = np.concatenate(deaths).astype(np.float64)
         p = (d - b).astype(np.float64)
 
-        q_b = np.quantile(b, [0.02, 0.98])
-        q_p = np.quantile(p, [0.02, 0.98])
+        b0, b1 = np.quantile(b, [0.02, 0.98])
+        p0, p1 = np.quantile(p, [0.02, 0.98])
 
-        b0 = float(q_b[0]); b1 = float(q_b[1])
-        p0 = float(q_p[0]); p1 = float(q_p[1])
+        birth_range = (float(max(0.0, float(b0))), float(float(b1)))
+        pers_range  = (float(max(0.0, float(p0))), float(float(p1)))
 
-        birth_range = (float(max(0.0, b0)), float(b1))
-        pers_range = (float(max(0.0, p0)), float(p1))
+    ps = float(pixel_size)
+    pim = PersistenceImager(pixel_size=ps)
 
-    pim = PersistenceImager(pixel_size=float(pixel_size))
+    # Persist a resolution we control (works across persim versions)
+    nb = int(np.ceil((birth_range[1] - birth_range[0]) / max(ps, 1e-6))) + 1
+    npers = int(np.ceil((pers_range[1] - pers_range[0]) / max(ps, 1e-6))) + 1
+    pim._tda_resolution = (npers, nb)  # (rows, cols), matches imshow convention
 
-    # --- persim API compatibility (NO keyword args) ---
-    # Build a tiny "fake" diagram to force range inference
+    # Fit with broad compatibility
     bmin, bmax = birth_range
     pmin, pmax = pers_range
     fake = np.array(
@@ -317,7 +324,14 @@ def _fit_imager(train_dgms, pixel_size=0.05):
         dtype=np.float32,
     )
 
-    # Some persim versions accept pim.fit(diagrams), some accept list-of-diagrams
+    # Newer persim
+    try:
+        pim.fit(birth_range=birth_range, pers_range=pers_range)
+        return pim
+    except TypeError:
+        pass
+
+    # Older persim
     try:
         pim.fit(fake)
     except Exception:
@@ -326,19 +340,36 @@ def _fit_imager(train_dgms, pixel_size=0.05):
     return pim
 
 
-def fit_imagers_multiscale(dgms, pixel_sizes=(0.03, 0.05, 0.08)):
-    h1 = [d[1] for d in dgms]
-    h2 = [d[2] for d in dgms]
-    pim_h1 = [_fit_imager(h1, ps) for ps in tuple(pixel_sizes)]
-    pim_h2 = [_fit_imager(h2, ps) for ps in tuple(pixel_sizes)]
-    return pim_h1, pim_h2
+def diagram_to_pi(pim, dgm):
+    bars = finite_bars(dgm)
+
+    # Resolve image shape robustly
+    res = getattr(pim, "resolution", None)
+    if res is None:
+        res = getattr(pim, "_tda_resolution", (32, 32))
+    npers, nb = int(res[0]), int(res[1])
+
+    if len(bars) == 0:
+        return np.zeros((npers * nb,), dtype=np.float32)
+
+    # Try transform signatures across persim versions
+    try:
+        img = pim.transform(bars)
+        return np.asarray(img, dtype=np.float32).ravel()
+    except Exception:
+        pass
+
+    try:
+        img = pim.transform([bars])[0]
+        return np.asarray(img, dtype=np.float32).ravel()
+    except Exception:
+        return np.zeros((npers * nb,), dtype=np.float32)
 
 
 def diagram_to_pis(pims, dgm):
-    out = []
-    for pim in pims:
-        out.append(diagram_to_pi(pim, dgm))
-    return np.concatenate(out, axis=0).astype(np.float32)
+    vecs = [diagram_to_pi(pim, dgm) for pim in pims]
+    return np.concatenate(vecs, axis=0).astype(np.float32)
+
 
 # ============================
 # Diagram distances (Wasserstein/Bottleneck/Sliced-Wasserstein)
@@ -694,5 +725,6 @@ def mapper_spectral_features(G, k_eigs=12):
     tri = float(np.trace(A @ A @ A) / 6.0) if n else 0.0
     stats = np.array([n_nodes, n_edges, avg_deg, max_deg, conn, tri], dtype=np.float32)
     return np.concatenate([out, stats], axis=0).astype(np.float32)
+
 
 
