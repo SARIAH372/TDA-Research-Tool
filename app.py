@@ -7,7 +7,10 @@
             
 
             
-          # app.py (corrected for Streamlit reruns + matplotlib figure leaks)
+          # app.py (train runs once, shows progress, can stop, closes figures)
+# :contentReference[oaicite:0]{index=0}
+
+import time
 import streamlit as st
 import numpy as np
 import matplotlib.pyplot as plt
@@ -35,20 +38,26 @@ from topo import (
 st.set_page_config(page_title="TDA Research Tool", layout="wide")
 st.title("TDA Research Tool")
 
-# ---- session state guards ----
+# -----------------------
+# session state
+# -----------------------
 if "training" not in st.session_state:
     st.session_state.training = False
 if "trained" not in st.session_state:
     st.session_state.trained = False
+if "stop_requested" not in st.session_state:
+    st.session_state.stop_requested = False
+if "last_train_summary" not in st.session_state:
+    st.session_state.last_train_summary = None
 
-# ---- prevent matplotlib figure accumulation across reruns ----
+# -----------------------
+# matplotlib safety
+# -----------------------
 plt.close("all")
-
 
 def _show(fig):
     st.pyplot(fig, clear_figure=True)
     plt.close(fig)
-
 
 def plot_points(P, title, c=None):
     P = np.asarray(P)
@@ -72,7 +81,6 @@ def plot_points(P, title, c=None):
     ax.set_title(title)
     return fig
 
-
 def plot_diagram(dgm, title):
     bars = finite_bars(dgm)
     fig, ax = plt.subplots()
@@ -91,7 +99,6 @@ def plot_diagram(dgm, title):
     ax.set_title(title)
     return fig
 
-
 def plot_barcode(dgm, title, max_bars=60):
     bars = finite_bars(dgm)
     fig, ax = plt.subplots()
@@ -107,7 +114,6 @@ def plot_barcode(dgm, title, max_bars=60):
     ax.set_ylabel("bar")
     ax.set_title(title)
     return fig
-
 
 def make_model(kind, seed):
     if kind == "LogReg":
@@ -127,7 +133,6 @@ def make_model(kind, seed):
         ))
     ])
 
-
 def fit_ensemble(kind, Xtr, ytr, n_models=7, seed=7):
     rng = np.random.default_rng(seed)
     models = []
@@ -139,13 +144,18 @@ def fit_ensemble(kind, Xtr, ytr, n_models=7, seed=7):
         models.append(m)
     return models
 
-
 def ensemble_predict(models, X):
     probs = np.stack([m.predict_proba(X) for m in models], axis=0)
     return probs.mean(axis=0), probs.std(axis=0)
 
+def _maybe_stop():
+    if st.session_state.stop_requested:
+        st.session_state.training = False
+        st.session_state.trained = False
+        st.session_state.stop_requested = False
+        st.stop()
 
-def build_features(
+def build_features_with_progress(
     point_clouds, y,
     pixel_sizes, grid_len, topk, k_levels,
     proto_cap, seed, metric,
@@ -154,12 +164,16 @@ def build_features(
     use_pss, pss_nb, pss_np, pss_sigma,
     use_mapper, mapper_intervals, mapper_overlap, mapper_db_eps, mapper_min_s,
     use_circ, circ_coeff,
+    prog_bar=None, prog_text=None
 ):
     dgms_euc = []
     dgms_geo = []
     circ_cache = []
 
-    for p in point_clouds:
+    n = len(point_clouds)
+    for i, p in enumerate(point_clouds):
+        _maybe_stop()
+
         dg_e = persistence_diagrams(p, maxdim=2)
         dgms_euc.append(dg_e)
 
@@ -178,6 +192,11 @@ def build_features(
         else:
             circ_cache.append(None)
 
+        if prog_bar is not None:
+            prog_bar.progress((i + 1) / max(1, n))
+        if prog_text is not None:
+            prog_text.write(f"features: {i+1}/{n}")
+
     if not pixel_sizes:
         pixel_sizes = (0.05,)
 
@@ -195,6 +214,8 @@ def build_features(
 
     Xfeat = []
     for p, dg_e, dg_g, theta in zip(point_clouds, dgms_euc, dgms_geo, circ_cache):
+        _maybe_stop()
+
         pi1 = diagram_to_pis(pim_h1_list, dg_e[1])
         pi2 = diagram_to_pis(pim_h2_list, dg_e[2])
 
@@ -270,7 +291,6 @@ def build_features(
     }
     return np.vstack(Xfeat), dgms_euc, dgms_geo, fit_pack
 
-
 def featurize_one(points, fit_pack):
     dg_e = persistence_diagrams(points, maxdim=2)
 
@@ -288,6 +308,7 @@ def featurize_one(points, fit_pack):
     d2 = distances_to_prototypes(dg_e[2], fit_pack["protos_h2"], metric=str(fit_pack["metric"]), seed=456)
 
     geo = np.zeros((0,), dtype=np.float32)
+    dg_g = None
     if fit_pack["use_geodesic"]:
         dg_g, _ = persistence_diagrams_geodesic(points, k=int(fit_pack["geo_k"]), maxdim=2)
         geo = tda_feature_block(
@@ -296,8 +317,6 @@ def featurize_one(points, fit_pack):
             topk=min(10, int(fit_pack["topk"])),
             k_levels=min(3, int(fit_pack["k_levels"]))
         ).astype(np.float32)
-    else:
-        dg_g = None
 
     dens = np.zeros((0,), dtype=np.float32)
     if fit_pack["use_density"]:
@@ -334,20 +353,18 @@ def featurize_one(points, fit_pack):
     feat = np.concatenate([pi1, pi2, hard, d1, d2, geo, dens, pss, mapper_feat], axis=0).astype(np.float32)
     return feat, dg_e, dg_g
 
-
+# -----------------------
+# sidebar
+# -----------------------
 with st.sidebar:
-    n_samples = st.slider("n_samples", 200, 1600, 650, step=50)
-    n_points = st.slider("n_points", 80, 320, 160, step=10)
+    n_samples = st.slider("n_samples", 50, 1600, 650, step=50)
+    n_points = st.slider("n_points", 40, 320, 160, step=10)
     p_3d = st.slider("p_3d", 0.10, 0.80, 0.45, step=0.05)
     noise_2d = st.slider("noise_2d", 0.0, 0.20, 0.03, step=0.01)
     noise_3d = st.slider("noise_3d", 0.0, 0.20, 0.02, step=0.01)
     seed = st.number_input("seed", value=7, step=1)
 
-    pixel_sizes = st.multiselect(
-        "pixel_sizes",
-        options=[0.02, 0.03, 0.05, 0.08, 0.10],
-        default=[0.03, 0.05, 0.08]
-    )
+    pixel_sizes = st.multiselect("pixel_sizes", options=[0.02, 0.03, 0.05, 0.08, 0.10], default=[0.03, 0.05, 0.08])
     if not pixel_sizes:
         pixel_sizes = [0.05]
 
@@ -383,6 +400,9 @@ with st.sidebar:
 
 tabs = st.tabs(["PH", "Cohomology", "Mapper", "Train", "Predict"])
 
+# -----------------------
+# PH tab
+# -----------------------
 with tabs[0]:
     keys2 = list(SHAPES_2D.keys())
     keys3 = list(SHAPES_3D.keys())
@@ -418,6 +438,9 @@ with tabs[0]:
         with g3:
             _show(plot_diagram(dg_g[2], "H2 geodesic"))
 
+# -----------------------
+# Cohomology tab
+# -----------------------
 with tabs[1]:
     keys2 = list(SHAPES_2D.keys())
     keys3 = list(SHAPES_3D.keys())
@@ -434,6 +457,9 @@ with tabs[1]:
     if theta is not None:
         st.write({"birth": float(birth), "death": float(death)})
 
+# -----------------------
+# Mapper tab
+# -----------------------
 with tabs[2]:
     keys2 = list(SHAPES_2D.keys())
     keys3 = list(SHAPES_3D.keys())
@@ -462,6 +488,9 @@ with tabs[2]:
     st.write({"n_nodes": int(len(G["nodes"])), "n_edges": int(len(G["edges"]))})
     st.write({"spectral": spec.tolist()})
 
+# -----------------------
+# Train tab (no infinite run)
+# -----------------------
 with tabs[3]:
     @st.cache_data
     def cached_data(n_samples, n_points, noise_2d, noise_3d, p_3d, seed):
@@ -474,30 +503,41 @@ with tabs[3]:
             seed=int(seed),
         )
 
-    colA, colB = st.columns([1, 1])
-    with colA:
+    col1, col2, col3 = st.columns([1, 1, 2])
+    with col1:
         start = st.button("train", disabled=st.session_state.training)
-    with colB:
+    with col2:
+        stop = st.button("stop", disabled=not st.session_state.training)
+    with col3:
         reset = st.button("reset", disabled=st.session_state.training)
 
     if reset:
-        for k in ["class_names", "models", "fit_pack"]:
+        for k in ["class_names", "models", "fit_pack", "last_train_summary"]:
             if k in st.session_state:
                 del st.session_state[k]
         st.session_state.training = False
         st.session_state.trained = False
+        st.session_state.stop_requested = False
         st.rerun()
+
+    if stop:
+        st.session_state.stop_requested = True
 
     if start and not st.session_state.training:
         st.session_state.training = True
         st.session_state.trained = False
+        st.session_state.stop_requested = False
         st.rerun()
 
     if st.session_state.training and not st.session_state.trained:
-        with st.spinner("training..."):
-            pcs, y, class_names = cached_data(n_samples, n_points, noise_2d, noise_3d, p_3d, seed)
+        prog_bar = st.progress(0.0)
+        prog_text = st.empty()
+        t0 = time.time()
 
-            X, dgms_euc, dgms_geo, fit_pack = build_features(
+        pcs, y, class_names = cached_data(n_samples, n_points, noise_2d, noise_3d, p_3d, seed)
+
+        with st.spinner("training..."):
+            X, _, _, fit_pack = build_features_with_progress(
                 pcs, y,
                 pixel_sizes=tuple(pixel_sizes),
                 grid_len=int(grid_len),
@@ -521,33 +561,37 @@ with tabs[3]:
                 mapper_min_s=int(mapper_min_s),
                 use_circ=bool(use_circ),
                 circ_coeff=int(circ_coeff),
+                prog_bar=prog_bar,
+                prog_text=prog_text,
             )
+
+            _maybe_stop()
 
             Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.25, random_state=int(seed), stratify=y)
             models = fit_ensemble(model_kind, Xtr, ytr, n_models=int(ens), seed=int(seed))
-            p_mean, p_std = ensemble_predict(models, Xte)
+            p_mean, _ = ensemble_predict(models, Xte)
             pred = np.argmax(p_mean, axis=1)
             acc = accuracy_score(yte, pred)
 
-            st.session_state["class_names"] = class_names
-            st.session_state["models"] = models
-            st.session_state["fit_pack"] = fit_pack
-
-            st.session_state.trained = True
-            st.session_state.training = False
-
+        st.session_state["class_names"] = class_names
+        st.session_state["models"] = models
+        st.session_state["fit_pack"] = fit_pack
+        st.session_state.training = False
+        st.session_state.trained = True
+        st.session_state.last_train_summary = {
+            "acc": float(acc),
+            "d": int(X.shape[1]),
+            "classes": int(len(class_names)),
+            "seconds": float(time.time() - t0),
+        }
         st.rerun()
 
-    if st.session_state.trained and ("models" in st.session_state):
-        st.write({
-            "trained": True,
-            "classes": int(len(st.session_state["class_names"])),
-        })
+    if st.session_state.trained and st.session_state.last_train_summary is not None:
+        st.write(st.session_state.last_train_summary)
 
-        # quick evaluation on a tiny cached batch (no recomputation)
-        # (accuracy already computed during training step; show only confusion matrix from last train run if desired)
-        # Keep this section minimal to avoid extra heavy computation.
-
+# -----------------------
+# Predict tab
+# -----------------------
 with tabs[4]:
     mode = st.radio("input", ["generate", "upload"], horizontal=True)
     pts = None
@@ -584,7 +628,7 @@ with tabs[4]:
             _show(plot_diagram(dg_e[2], "H2"))
 
         if "models" in st.session_state and "fit_pack" in st.session_state:
-            feat, dg_e2, dg_g2 = featurize_one(pts, st.session_state["fit_pack"])
+            feat, _, _ = featurize_one(pts, st.session_state["fit_pack"])
             models = st.session_state["models"]
             class_names = st.session_state["class_names"]
 
@@ -598,3 +642,4 @@ with tabs[4]:
             st.write({"pred": class_names[pred_idx], "conf": conf})
             for k, name in enumerate(class_names):
                 st.write(f"{name}: {p_mean[k]:.3f} ± {p_std[k]:.3f}")
+
