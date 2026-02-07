@@ -1,4 +1,4 @@
-# app.py
+
 import streamlit as st
 import numpy as np
 import matplotlib.pyplot as plt
@@ -26,17 +26,25 @@ from topo import (
 st.set_page_config(page_title="TDA Research Tool", layout="wide")
 st.title("TDA Research Tool")
 
+# ---- hard guard: avoid figure accumulation across reruns ----
+plt.close("all")
+
+def _show(fig):
+    st.pyplot(fig, clear_figure=True)
+    plt.close(fig)
+
 def plot_points(P, title, c=None):
     P = np.asarray(P)
     if P.shape[1] == 2:
-        fig = plt.figure()
+        fig, ax = plt.subplots()
         if c is None:
-            plt.scatter(P[:, 0], P[:, 1], s=12)
+            ax.scatter(P[:, 0], P[:, 1], s=12)
         else:
-            plt.scatter(P[:, 0], P[:, 1], s=12, c=c)
-        plt.axis("equal")
-        plt.title(title)
+            ax.scatter(P[:, 0], P[:, 1], s=12, c=c)
+        ax.set_aspect("equal", adjustable="box")
+        ax.set_title(title)
         return fig
+
     from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
     fig = plt.figure()
     ax = fig.add_subplot(111, projection="3d")
@@ -48,37 +56,37 @@ def plot_points(P, title, c=None):
     return fig
 
 def plot_diagram(dgm, title):
-    fig = plt.figure()
     bars = finite_bars(dgm)
+    fig, ax = plt.subplots()
     if len(bars) == 0:
-        plt.title(title)
+        ax.set_title(title)
         return fig
     b = bars[:, 0]
     d = bars[:, 1]
     lim = max(1.0, float(np.max(d)))
-    plt.scatter(b, d, s=18)
-    plt.plot([0, lim], [0, lim], linestyle="--")
-    plt.xlim(0, lim)
-    plt.ylim(0, lim)
-    plt.xlabel("birth")
-    plt.ylabel("death")
-    plt.title(title)
+    ax.scatter(b, d, s=18)
+    ax.plot([0, lim], [0, lim], linestyle="--")
+    ax.set_xlim(0, lim)
+    ax.set_ylim(0, lim)
+    ax.set_xlabel("birth")
+    ax.set_ylabel("death")
+    ax.set_title(title)
     return fig
 
 def plot_barcode(dgm, title, max_bars=60):
-    fig = plt.figure()
     bars = finite_bars(dgm)
+    fig, ax = plt.subplots()
     if len(bars) == 0:
-        plt.title(title)
+        ax.set_title(title)
         return fig
     pers = bars[:, 1] - bars[:, 0]
     order = np.argsort(pers)[::-1]
     bars = bars[order][:max_bars]
     for i, (bi, di) in enumerate(bars):
-        plt.plot([bi, di], [i, i])
-    plt.xlabel("eps")
-    plt.ylabel("bar")
-    plt.title(title)
+        ax.plot([bi, di], [i, i])
+    ax.set_xlabel("eps")
+    ax.set_ylabel("bar")
+    ax.set_title(title)
     return fig
 
 def make_model(kind, seed):
@@ -123,16 +131,19 @@ def build_features(point_clouds, y, pixel_sizes, grid_len, topk, k_levels,
     dgms_euc = []
     dgms_geo = []
     circ_cache = []
+
     for p in point_clouds:
         dg_e = persistence_diagrams(p, maxdim=2)
         dgms_euc.append(dg_e)
+
         if use_geodesic:
             dg_g, _ = persistence_diagrams_geodesic(p, k=int(geo_k), maxdim=2)
         else:
             dg_g = None
         dgms_geo.append(dg_g)
+
         if use_circ:
-            theta, birth, death, _ = circular_coordinates(p, coeff=int(circ_coeff), eps=None)
+            theta, _, _, _ = circular_coordinates(p, coeff=int(circ_coeff), eps=None)
             if theta is None:
                 circ_cache.append(np.zeros((p.shape[0],), dtype=np.float32))
             else:
@@ -140,11 +151,21 @@ def build_features(point_clouds, y, pixel_sizes, grid_len, topk, k_levels,
         else:
             circ_cache.append(None)
 
+    
+    if not pixel_sizes:
+        pixel_sizes = (0.05,)
+
     pim_h1_list, pim_h2_list = fit_imagers_multiscale(dgms_euc, pixel_sizes=tuple(pixel_sizes))
     n_classes = int(np.max(y)) + 1
 
-    protos_h1 = prototype_diagrams(dgms_euc, y, n_classes=n_classes, dim=1, cap_per_class=int(proto_cap), seed=int(seed), metric=str(metric))
-    protos_h2 = prototype_diagrams(dgms_euc, y, n_classes=n_classes, dim=2, cap_per_class=int(proto_cap), seed=int(seed), metric=str(metric))
+    protos_h1 = prototype_diagrams(
+        dgms_euc, y, n_classes=n_classes, dim=1,
+        cap_per_class=int(proto_cap), seed=int(seed), metric=str(metric)
+    )
+    protos_h2 = prototype_diagrams(
+        dgms_euc, y, n_classes=n_classes, dim=2,
+        cap_per_class=int(proto_cap), seed=int(seed), metric=str(metric)
+    )
 
     Xfeat = []
     for p, dg_e, dg_g, theta in zip(point_clouds, dgms_euc, dgms_geo, circ_cache):
@@ -158,11 +179,18 @@ def build_features(point_clouds, y, pixel_sizes, grid_len, topk, k_levels,
 
         geo = np.zeros((0,), dtype=np.float32)
         if use_geodesic and dg_g is not None:
-            geo = tda_feature_block(dg_g, grid_len=int(grid_len), topk=min(10, int(topk)), k_levels=min(3, int(k_levels))).astype(np.float32)
+            geo = tda_feature_block(
+                dg_g, grid_len=int(grid_len),
+                topk=min(10, int(topk)),
+                k_levels=min(3, int(k_levels))
+            ).astype(np.float32)
 
         dens = np.zeros((0,), dtype=np.float32)
         if use_density:
-            dens = density_filtration_summaries(p, fracs=(0.35, 0.55, 0.75, 1.0), k=int(dens_k), maxdim=2)
+            dens = density_filtration_summaries(
+                p, fracs=(0.35, 0.55, 0.75, 1.0),
+                k=int(dens_k), maxdim=2
+            )
 
         pss = np.zeros((0,), dtype=np.float32)
         if use_pss:
@@ -218,12 +246,16 @@ def build_features(point_clouds, y, pixel_sizes, grid_len, topk, k_levels,
 
 def featurize_one(points, fit_pack):
     dg_e = persistence_diagrams(points, maxdim=2)
-    pim_h1_list = fit_pack["pim_h1_list"]
-    pim_h2_list = fit_pack["pim_h2_list"]
-    pi1 = diagram_to_pis(pim_h1_list, dg_e[1])
-    pi2 = diagram_to_pis(pim_h2_list, dg_e[2])
 
-    hard = tda_feature_block(dg_e, grid_len=int(fit_pack["grid_len"]), topk=int(fit_pack["topk"]), k_levels=int(fit_pack["k_levels"]))
+    pi1 = diagram_to_pis(fit_pack["pim_h1_list"], dg_e[1])
+    pi2 = diagram_to_pis(fit_pack["pim_h2_list"], dg_e[2])
+
+    hard = tda_feature_block(
+        dg_e,
+        grid_len=int(fit_pack["grid_len"]),
+        topk=int(fit_pack["topk"]),
+        k_levels=int(fit_pack["k_levels"])
+    )
 
     d1 = distances_to_prototypes(dg_e[1], fit_pack["protos_h1"], metric=str(fit_pack["metric"]), seed=123)
     d2 = distances_to_prototypes(dg_e[2], fit_pack["protos_h2"], metric=str(fit_pack["metric"]), seed=456)
@@ -232,11 +264,19 @@ def featurize_one(points, fit_pack):
     dg_g = None
     if fit_pack["use_geodesic"]:
         dg_g, _ = persistence_diagrams_geodesic(points, k=int(fit_pack["geo_k"]), maxdim=2)
-        geo = tda_feature_block(dg_g, grid_len=int(fit_pack["grid_len"]), topk=min(10, int(fit_pack["topk"])), k_levels=min(3, int(fit_pack["k_levels"]))).astype(np.float32)
+        geo = tda_feature_block(
+            dg_g,
+            grid_len=int(fit_pack["grid_len"]),
+            topk=min(10, int(fit_pack["topk"])),
+            k_levels=min(3, int(fit_pack["k_levels"]))
+        ).astype(np.float32)
 
     dens = np.zeros((0,), dtype=np.float32)
     if fit_pack["use_density"]:
-        dens = density_filtration_summaries(points, fracs=(0.35, 0.55, 0.75, 1.0), k=int(fit_pack["dens_k"]), maxdim=2)
+        dens = density_filtration_summaries(
+            points, fracs=(0.35, 0.55, 0.75, 1.0),
+            k=int(fit_pack["dens_k"]), maxdim=2
+        )
 
     pss = np.zeros((0,), dtype=np.float32)
     if fit_pack["use_pss"]:
@@ -248,6 +288,7 @@ def featurize_one(points, fit_pack):
     theta = None
     if fit_pack["use_circ"]:
         theta, _, _, _ = circular_coordinates(points, coeff=int(fit_pack["circ_coeff"]), eps=None)
+
     if fit_pack["use_mapper"]:
         if theta is not None and points.shape[0] == theta.shape[0]:
             lens = theta
@@ -274,6 +315,9 @@ with st.sidebar:
     seed = st.number_input("seed", value=7, step=1)
 
     pixel_sizes = st.multiselect("pixel_sizes", options=[0.02, 0.03, 0.05, 0.08, 0.10], default=[0.03, 0.05, 0.08])
+    if not pixel_sizes:
+        pixel_sizes = [0.05]
+
     grid_len = st.slider("grid_len", 32, 128, 64, step=16)
     topk = st.slider("topk", 4, 24, 10, step=2)
     k_levels = st.slider("k_levels", 1, 6, 3, step=1)
@@ -317,29 +361,29 @@ with tabs[0]:
     else:
         pts = SHAPES_3D[pick](n=int(n_points), noise=float(noise_3d), seed=int(seed) + 202)
 
-    st.pyplot(plot_points(pts, f"{pick} dim={pts.shape[1]}"))
+    _show(plot_points(pts, f"{pick} dim={pts.shape[1]}"))
 
     dg_e = persistence_diagrams(pts, maxdim=2)
     c1, c2, c3 = st.columns(3)
     with c1:
-        st.pyplot(plot_diagram(dg_e[0], "H0 euclidean"))
-        st.pyplot(plot_barcode(dg_e[0], "H0 barcode"))
+        _show(plot_diagram(dg_e[0], "H0 euclidean"))
+        _show(plot_barcode(dg_e[0], "H0 barcode"))
     with c2:
-        st.pyplot(plot_diagram(dg_e[1], "H1 euclidean"))
-        st.pyplot(plot_barcode(dg_e[1], "H1 barcode"))
+        _show(plot_diagram(dg_e[1], "H1 euclidean"))
+        _show(plot_barcode(dg_e[1], "H1 barcode"))
     with c3:
-        st.pyplot(plot_diagram(dg_e[2], "H2 euclidean"))
-        st.pyplot(plot_barcode(dg_e[2], "H2 barcode"))
+        _show(plot_diagram(dg_e[2], "H2 euclidean"))
+        _show(plot_barcode(dg_e[2], "H2 barcode"))
 
     if use_geodesic:
         dg_g, _ = persistence_diagrams_geodesic(pts, k=int(geo_k), maxdim=2)
         g1, g2, g3 = st.columns(3)
         with g1:
-            st.pyplot(plot_diagram(dg_g[0], "H0 geodesic"))
+            _show(plot_diagram(dg_g[0], "H0 geodesic"))
         with g2:
-            st.pyplot(plot_diagram(dg_g[1], "H1 geodesic"))
+            _show(plot_diagram(dg_g[1], "H1 geodesic"))
         with g3:
-            st.pyplot(plot_diagram(dg_g[2], "H2 geodesic"))
+            _show(plot_diagram(dg_g[2], "H2 geodesic"))
 
 with tabs[1]:
     keys2 = list(SHAPES_2D.keys())
@@ -353,7 +397,7 @@ with tabs[1]:
         pts = SHAPES_3D[pick](n=int(n_points), noise=float(noise_3d), seed=int(seed) + 404)
 
     theta, birth, death, _ = circular_coordinates(pts, coeff=int(circ_coeff), eps=None) if use_circ else (None, None, None, None)
-    st.pyplot(plot_points(pts, f"{pick} dim={pts.shape[1]}", c=theta if theta is not None else None))
+    _show(plot_points(pts, f"{pick} dim={pts.shape[1]}", c=theta if theta is not None else None))
     if theta is not None:
         st.write({"birth": float(birth), "death": float(death)})
 
@@ -398,54 +442,55 @@ with tabs[3]:
         )
 
     if st.button("train"):
-        pcs, y, class_names = cached_data(n_samples, n_points, noise_2d, noise_3d, p_3d, seed)
+        with st.spinner("training..."):
+            pcs, y, class_names = cached_data(n_samples, n_points, noise_2d, noise_3d, p_3d, seed)
 
-        X, dgms_euc, dgms_geo, fit_pack = build_features(
-            pcs, y,
-            pixel_sizes=tuple(pixel_sizes),
-            grid_len=int(grid_len),
-            topk=int(topk),
-            k_levels=int(k_levels),
-            proto_cap=int(proto_cap),
-            seed=int(seed),
-            metric=str(metric),
-            use_geodesic=bool(use_geodesic),
-            geo_k=int(geo_k),
-            use_density=bool(use_density),
-            dens_k=int(dens_k),
-            use_pss=bool(use_pss),
-            pss_nb=int(pss_nb),
-            pss_np=int(pss_np),
-            pss_sigma=float(pss_sigma),
-            use_mapper=bool(use_mapper),
-            mapper_intervals=int(mapper_intervals),
-            mapper_overlap=float(mapper_overlap),
-            mapper_db_eps=float(mapper_db_eps),
-            mapper_min_s=int(mapper_min_s),
-            use_circ=bool(use_circ),
-            circ_coeff=int(circ_coeff),
-        )
+            X, dgms_euc, dgms_geo, fit_pack = build_features(
+                pcs, y,
+                pixel_sizes=tuple(pixel_sizes),
+                grid_len=int(grid_len),
+                topk=int(topk),
+                k_levels=int(k_levels),
+                proto_cap=int(proto_cap),
+                seed=int(seed),
+                metric=str(metric),
+                use_geodesic=bool(use_geodesic),
+                geo_k=int(geo_k),
+                use_density=bool(use_density),
+                dens_k=int(dens_k),
+                use_pss=bool(use_pss),
+                pss_nb=int(pss_nb),
+                pss_np=int(pss_np),
+                pss_sigma=float(pss_sigma),
+                use_mapper=bool(use_mapper),
+                mapper_intervals=int(mapper_intervals),
+                mapper_overlap=float(mapper_overlap),
+                mapper_db_eps=float(mapper_db_eps),
+                mapper_min_s=int(mapper_min_s),
+                use_circ=bool(use_circ),
+                circ_coeff=int(circ_coeff),
+            )
 
-        Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.25, random_state=int(seed), stratify=y)
-        models = fit_ensemble(model_kind, Xtr, ytr, n_models=int(ens), seed=int(seed))
-        p_mean, p_std = ensemble_predict(models, Xte)
-        pred = np.argmax(p_mean, axis=1)
-        acc = accuracy_score(yte, pred)
+            Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.25, random_state=int(seed), stratify=y)
+            models = fit_ensemble(model_kind, Xtr, ytr, n_models=int(ens), seed=int(seed))
+            p_mean, p_std = ensemble_predict(models, Xte)
+            pred = np.argmax(p_mean, axis=1)
+            acc = accuracy_score(yte, pred)
 
-        st.session_state["class_names"] = class_names
-        st.session_state["models"] = models
-        st.session_state["fit_pack"] = fit_pack
+            st.session_state["class_names"] = class_names
+            st.session_state["models"] = models
+            st.session_state["fit_pack"] = fit_pack
 
-        st.write({"acc": float(acc), "d": int(X.shape[1]), "classes": int(len(class_names))})
+            st.write({"acc": float(acc), "d": int(X.shape[1]), "classes": int(len(class_names))})
 
-        cm = confusion_matrix(yte, pred)
-        fig = plt.figure()
-        plt.imshow(cm)
-        plt.title("cm")
-        plt.xlabel("pred")
-        plt.ylabel("true")
-        plt.colorbar()
-        st.pyplot(fig)
+            cm = confusion_matrix(yte, pred)
+            fig, ax = plt.subplots()
+            im = ax.imshow(cm)
+            ax.set_title("cm")
+            ax.set_xlabel("pred")
+            ax.set_ylabel("true")
+            fig.colorbar(im, ax=ax)
+            _show(fig)
 
 with tabs[4]:
     mode = st.radio("input", ["generate", "upload"], horizontal=True)
@@ -472,18 +517,18 @@ with tabs[4]:
                 pts = data.astype(np.float32)
 
     if pts is not None:
-        st.pyplot(plot_points(pts, f"dim={pts.shape[1]}"))
+        _show(plot_points(pts, f"dim={pts.shape[1]}"))
         dg_e = persistence_diagrams(pts, maxdim=2)
         c1, c2, c3 = st.columns(3)
         with c1:
-            st.pyplot(plot_diagram(dg_e[0], "H0"))
+            _show(plot_diagram(dg_e[0], "H0"))
         with c2:
-            st.pyplot(plot_diagram(dg_e[1], "H1"))
+            _show(plot_diagram(dg_e[1], "H1"))
         with c3:
-            st.pyplot(plot_diagram(dg_e[2], "H2"))
+            _show(plot_diagram(dg_e[2], "H2"))
 
         if "models" in st.session_state:
-            feat, dg_e, dg_g = featurize_one(pts, st.session_state["fit_pack"])
+            feat, dg_e2, dg_g2 = featurize_one(pts, st.session_state["fit_pack"])
             models = st.session_state["models"]
             class_names = st.session_state["class_names"]
 
