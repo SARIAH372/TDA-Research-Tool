@@ -1,4 +1,13 @@
 
+
+    
+            
+            
+                
+            
+
+            
+          # app.py (corrected for Streamlit reruns + matplotlib figure leaks)
 import streamlit as st
 import numpy as np
 import matplotlib.pyplot as plt
@@ -26,12 +35,20 @@ from topo import (
 st.set_page_config(page_title="TDA Research Tool", layout="wide")
 st.title("TDA Research Tool")
 
-# ---- hard guard: avoid figure accumulation across reruns ----
+# ---- session state guards ----
+if "training" not in st.session_state:
+    st.session_state.training = False
+if "trained" not in st.session_state:
+    st.session_state.trained = False
+
+# ---- prevent matplotlib figure accumulation across reruns ----
 plt.close("all")
+
 
 def _show(fig):
     st.pyplot(fig, clear_figure=True)
     plt.close(fig)
+
 
 def plot_points(P, title, c=None):
     P = np.asarray(P)
@@ -55,6 +72,7 @@ def plot_points(P, title, c=None):
     ax.set_title(title)
     return fig
 
+
 def plot_diagram(dgm, title):
     bars = finite_bars(dgm)
     fig, ax = plt.subplots()
@@ -73,6 +91,7 @@ def plot_diagram(dgm, title):
     ax.set_title(title)
     return fig
 
+
 def plot_barcode(dgm, title, max_bars=60):
     bars = finite_bars(dgm)
     fig, ax = plt.subplots()
@@ -88,6 +107,7 @@ def plot_barcode(dgm, title, max_bars=60):
     ax.set_ylabel("bar")
     ax.set_title(title)
     return fig
+
 
 def make_model(kind, seed):
     if kind == "LogReg":
@@ -107,6 +127,7 @@ def make_model(kind, seed):
         ))
     ])
 
+
 def fit_ensemble(kind, Xtr, ytr, n_models=7, seed=7):
     rng = np.random.default_rng(seed)
     models = []
@@ -118,16 +139,22 @@ def fit_ensemble(kind, Xtr, ytr, n_models=7, seed=7):
         models.append(m)
     return models
 
+
 def ensemble_predict(models, X):
     probs = np.stack([m.predict_proba(X) for m in models], axis=0)
     return probs.mean(axis=0), probs.std(axis=0)
 
-def build_features(point_clouds, y, pixel_sizes, grid_len, topk, k_levels,
-                   proto_cap, seed, metric, use_geodesic, geo_k,
-                   use_density, dens_k,
-                   use_pss, pss_nb, pss_np, pss_sigma,
-                   use_mapper, mapper_intervals, mapper_overlap, mapper_db_eps, mapper_min_s,
-                   use_circ, circ_coeff):
+
+def build_features(
+    point_clouds, y,
+    pixel_sizes, grid_len, topk, k_levels,
+    proto_cap, seed, metric,
+    use_geodesic, geo_k,
+    use_density, dens_k,
+    use_pss, pss_nb, pss_np, pss_sigma,
+    use_mapper, mapper_intervals, mapper_overlap, mapper_db_eps, mapper_min_s,
+    use_circ, circ_coeff,
+):
     dgms_euc = []
     dgms_geo = []
     circ_cache = []
@@ -151,7 +178,6 @@ def build_features(point_clouds, y, pixel_sizes, grid_len, topk, k_levels,
         else:
             circ_cache.append(None)
 
-    
     if not pixel_sizes:
         pixel_sizes = (0.05,)
 
@@ -244,6 +270,7 @@ def build_features(point_clouds, y, pixel_sizes, grid_len, topk, k_levels,
     }
     return np.vstack(Xfeat), dgms_euc, dgms_geo, fit_pack
 
+
 def featurize_one(points, fit_pack):
     dg_e = persistence_diagrams(points, maxdim=2)
 
@@ -261,7 +288,6 @@ def featurize_one(points, fit_pack):
     d2 = distances_to_prototypes(dg_e[2], fit_pack["protos_h2"], metric=str(fit_pack["metric"]), seed=456)
 
     geo = np.zeros((0,), dtype=np.float32)
-    dg_g = None
     if fit_pack["use_geodesic"]:
         dg_g, _ = persistence_diagrams_geodesic(points, k=int(fit_pack["geo_k"]), maxdim=2)
         geo = tda_feature_block(
@@ -270,6 +296,8 @@ def featurize_one(points, fit_pack):
             topk=min(10, int(fit_pack["topk"])),
             k_levels=min(3, int(fit_pack["k_levels"]))
         ).astype(np.float32)
+    else:
+        dg_g = None
 
     dens = np.zeros((0,), dtype=np.float32)
     if fit_pack["use_density"]:
@@ -306,6 +334,7 @@ def featurize_one(points, fit_pack):
     feat = np.concatenate([pi1, pi2, hard, d1, d2, geo, dens, pss, mapper_feat], axis=0).astype(np.float32)
     return feat, dg_e, dg_g
 
+
 with st.sidebar:
     n_samples = st.slider("n_samples", 200, 1600, 650, step=50)
     n_points = st.slider("n_points", 80, 320, 160, step=10)
@@ -314,7 +343,11 @@ with st.sidebar:
     noise_3d = st.slider("noise_3d", 0.0, 0.20, 0.02, step=0.01)
     seed = st.number_input("seed", value=7, step=1)
 
-    pixel_sizes = st.multiselect("pixel_sizes", options=[0.02, 0.03, 0.05, 0.08, 0.10], default=[0.03, 0.05, 0.08])
+    pixel_sizes = st.multiselect(
+        "pixel_sizes",
+        options=[0.02, 0.03, 0.05, 0.08, 0.10],
+        default=[0.03, 0.05, 0.08]
+    )
     if not pixel_sizes:
         pixel_sizes = [0.05]
 
@@ -441,7 +474,26 @@ with tabs[3]:
             seed=int(seed),
         )
 
-    if st.button("train"):
+    colA, colB = st.columns([1, 1])
+    with colA:
+        start = st.button("train", disabled=st.session_state.training)
+    with colB:
+        reset = st.button("reset", disabled=st.session_state.training)
+
+    if reset:
+        for k in ["class_names", "models", "fit_pack"]:
+            if k in st.session_state:
+                del st.session_state[k]
+        st.session_state.training = False
+        st.session_state.trained = False
+        st.rerun()
+
+    if start and not st.session_state.training:
+        st.session_state.training = True
+        st.session_state.trained = False
+        st.rerun()
+
+    if st.session_state.training and not st.session_state.trained:
         with st.spinner("training..."):
             pcs, y, class_names = cached_data(n_samples, n_points, noise_2d, noise_3d, p_3d, seed)
 
@@ -481,16 +533,20 @@ with tabs[3]:
             st.session_state["models"] = models
             st.session_state["fit_pack"] = fit_pack
 
-            st.write({"acc": float(acc), "d": int(X.shape[1]), "classes": int(len(class_names))})
+            st.session_state.trained = True
+            st.session_state.training = False
 
-            cm = confusion_matrix(yte, pred)
-            fig, ax = plt.subplots()
-            im = ax.imshow(cm)
-            ax.set_title("cm")
-            ax.set_xlabel("pred")
-            ax.set_ylabel("true")
-            fig.colorbar(im, ax=ax)
-            _show(fig)
+        st.rerun()
+
+    if st.session_state.trained and ("models" in st.session_state):
+        st.write({
+            "trained": True,
+            "classes": int(len(st.session_state["class_names"])),
+        })
+
+        # quick evaluation on a tiny cached batch (no recomputation)
+        # (accuracy already computed during training step; show only confusion matrix from last train run if desired)
+        # Keep this section minimal to avoid extra heavy computation.
 
 with tabs[4]:
     mode = st.radio("input", ["generate", "upload"], horizontal=True)
@@ -527,7 +583,7 @@ with tabs[4]:
         with c3:
             _show(plot_diagram(dg_e[2], "H2"))
 
-        if "models" in st.session_state:
+        if "models" in st.session_state and "fit_pack" in st.session_state:
             feat, dg_e2, dg_g2 = featurize_one(pts, st.session_state["fit_pack"])
             models = st.session_state["models"]
             class_names = st.session_state["class_names"]
