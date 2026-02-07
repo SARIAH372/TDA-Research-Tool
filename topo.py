@@ -1,22 +1,14 @@
 
 
 
-        
-        # topo.py
+    # topo.py
 import numpy as np
 from ripser import ripser
-from sklearn.decomposition import PCA
-from sklearn.cluster import DBSCAN
 
 try:
     from persim import wasserstein as _persim_wasserstein
 except Exception:
     _persim_wasserstein = None
-
-try:
-    from persim import bottleneck as _persim_bottleneck
-except Exception:
-    _persim_bottleneck = None
 
 
 # ============================
@@ -103,24 +95,24 @@ SHAPES_3D = {
 # ============================
 # Mixed dataset
 # ============================
-def make_dataset_mixed(n_samples=600, n_points=160, noise_2d=0.03, noise_3d=0.02, p_3d=0.45, seed=7):
+def make_dataset_mixed(n_samples=400, n_points=140, noise_2d=0.03, noise_3d=0.02, p_3d=0.45, seed=7):
     rng = np.random.default_rng(seed)
     keys2 = list(SHAPES_2D.keys())
     keys3 = list(SHAPES_3D.keys())
     class_names = keys2 + keys3
 
     X, y = [], []
-    for _ in range(n_samples):
-        is3 = (rng.uniform() < p_3d)
+    for _ in range(int(n_samples)):
+        is3 = (rng.uniform() < float(p_3d))
         if is3:
             cls = int(rng.integers(0, len(keys3)))
             name = keys3[cls]
-            pts = SHAPES_3D[name](n=n_points, noise=noise_3d, seed=int(rng.integers(0, 10_000)))
+            pts = SHAPES_3D[name](n=int(n_points), noise=float(noise_3d), seed=int(rng.integers(0, 10_000)))
             label = len(keys2) + cls
         else:
             cls = int(rng.integers(0, len(keys2)))
             name = keys2[cls]
-            pts = SHAPES_2D[name](n=n_points, noise=noise_2d, seed=int(rng.integers(0, 10_000)))
+            pts = SHAPES_2D[name](n=int(n_points), noise=float(noise_2d), seed=int(rng.integers(0, 10_000)))
             label = cls
         X.append(pts)
         y.append(label)
@@ -132,57 +124,8 @@ def make_dataset_mixed(n_samples=600, n_points=160, noise_2d=0.03, noise_3d=0.02
 # Persistent homology
 # ============================
 def persistence_diagrams(points, maxdim=2):
-    out = ripser(points, maxdim=maxdim)
+    out = ripser(points, maxdim=int(maxdim))
     return out["dgms"]
-
-
-# ============================
-# Geodesic PH
-# ============================
-def _knn_adjacency(points, k=10):
-    X = np.asarray(points, dtype=np.float32)
-    n = X.shape[0]
-    D = np.sqrt(((X[:, None, :] - X[None, :, :]) ** 2).sum(axis=2))
-    np.fill_diagonal(D, 0.0)
-    adj = [[] for _ in range(n)]
-    for i in range(n):
-        nn = np.argsort(D[i])[1 : k + 1]
-        for j in nn:
-            w = float(D[i, j])
-            adj[i].append((int(j), w))
-            adj[int(j)].append((i, w))
-    return adj
-
-def _all_pairs_dijkstra(adj):
-    import heapq
-    n = len(adj)
-    distmat = np.full((n, n), np.inf, dtype=np.float32)
-    for s in range(n):
-        dist = np.full((n,), np.inf, dtype=np.float32)
-        dist[s] = 0.0
-        visited = np.zeros((n,), dtype=np.uint8)
-        heap = [(0.0, s)]
-        while heap:
-            du, u = heapq.heappop(heap)
-            if visited[u]:
-                continue
-            visited[u] = 1
-            for v, w in adj[u]:
-                nd = du + w
-                if nd < dist[v]:
-                    dist[v] = nd
-                    heapq.heappush(heap, (float(nd), int(v)))
-        distmat[s] = dist
-    max_finite = float(np.nanmax(distmat[np.isfinite(distmat)])) if np.any(np.isfinite(distmat)) else 1.0
-    distmat[~np.isfinite(distmat)] = max_finite * 2.0
-    np.fill_diagonal(distmat, 0.0)
-    return distmat
-
-def persistence_diagrams_geodesic(points, k=10, maxdim=2):
-    adj = _knn_adjacency(points, k=int(k))
-    G = _all_pairs_dijkstra(adj)
-    out = ripser(G, distance_matrix=True, maxdim=maxdim)
-    return out["dgms"], G
 
 
 # ============================
@@ -213,12 +156,12 @@ def total_persistence(dgm, power=1):
     lt = lifetimes(dgm)
     if lt.size == 0:
         return 0.0
-    return float((lt ** power).sum())
+    return float((lt ** int(power)).sum())
 
 def topk_lifetimes(dgm, k=8):
     lt = lifetimes(dgm)
-    out = np.zeros((k,), dtype=np.float32)
-    m = min(k, lt.size)
+    out = np.zeros((int(k),), dtype=np.float32)
+    m = min(int(k), int(lt.size))
     if m > 0:
         out[:m] = lt[:m]
     return out
@@ -230,8 +173,9 @@ def silhouette_curve(dgm, grid, p=1.0, eps=1e-12):
     b = bars[:, 0]
     d = bars[:, 1]
     lt = (d - b).astype(np.float32)
-    w = lt ** p
+    w = (lt ** float(p))
     wsum = float(w.sum() + eps)
+
     s = np.zeros_like(grid, dtype=np.float32)
     for bi, di, wi in zip(b, d, w):
         left = grid - bi
@@ -244,7 +188,7 @@ def silhouette_curve(dgm, grid, p=1.0, eps=1e-12):
 def landscape_samples(dgm, grid, k_levels=3):
     bars = finite_bars(dgm)
     if len(bars) == 0:
-        return np.zeros((k_levels, len(grid)), dtype=np.float32)
+        return np.zeros((int(k_levels), len(grid)), dtype=np.float32)
     b = bars[:, 0]
     d = bars[:, 1]
     tents = []
@@ -254,9 +198,9 @@ def landscape_samples(dgm, grid, k_levels=3):
         tri = np.minimum(left, right)
         tri = np.maximum(tri, 0.0).astype(np.float32)
         tents.append(tri)
-    T = np.stack(tents, axis=0)
+    T = np.stack(tents, axis=0)  # [bars, G]
     Tsort = np.sort(T, axis=0)[::-1]
-    return Tsort[:k_levels, :]
+    return Tsort[: int(k_levels), :]
 
 def tda_feature_block(dgms, grid_len=64, topk=8, k_levels=3):
     all_bd = []
@@ -264,14 +208,15 @@ def tda_feature_block(dgms, grid_len=64, topk=8, k_levels=3):
         bars = finite_bars(dgm)
         if len(bars):
             all_bd.append(bars)
+
     if len(all_bd) == 0:
-        grid = np.linspace(0.0, 1.0, grid_len).astype(np.float32)
+        grid = np.linspace(0.0, 1.0, int(grid_len), dtype=np.float32)
     else:
         bd = np.vstack(all_bd)
         lo = float(np.min(bd[:, 0]))
         hi = float(np.max(bd[:, 1]))
         hi = max(hi, lo + 1e-3)
-        grid = np.linspace(max(0.0, lo), hi, grid_len).astype(np.float32)
+        grid = np.linspace(max(0.0, lo), hi, int(grid_len), dtype=np.float32)
 
     blocks = []
     for dim in range(3):
@@ -279,15 +224,16 @@ def tda_feature_block(dgms, grid_len=64, topk=8, k_levels=3):
         ent = np.array([persistence_entropy(dgm)], dtype=np.float32)
         tp1 = np.array([total_persistence(dgm, power=1)], dtype=np.float32)
         tp2 = np.array([total_persistence(dgm, power=2)], dtype=np.float32)
-        tkl = topk_lifetimes(dgm, k=topk)
+        tkl = topk_lifetimes(dgm, k=int(topk))
         sil = silhouette_curve(dgm, grid, p=1.0).astype(np.float32)
-        land = landscape_samples(dgm, grid, k_levels=k_levels).astype(np.float32).ravel()
+        land = landscape_samples(dgm, grid, k_levels=int(k_levels)).astype(np.float32).ravel()
         blocks.append(np.concatenate([ent, tp1, tp2, tkl, sil, land], axis=0))
+
     return np.concatenate(blocks, axis=0).astype(np.float32)
 
 
 # ============================
-# Fixed-length Persistence Images (32x32 always)
+# Fixed-length persistence images (always 32x32 per channel)
 # ============================
 class PIModel:
     def __init__(self, birth_max=1.0, pers_max=1.0, sigma=0.15, nb=32, npers=32):
@@ -296,10 +242,6 @@ class PIModel:
         self.sigma = float(sigma)
         self.nb = int(nb)
         self.npers = int(npers)
-
-    @property
-    def resolution(self):
-        return (self.npers, self.nb)
 
 def _infer_ranges(dgms_dim):
     births = []
@@ -316,12 +258,12 @@ def _infer_ranges(dgms_dim):
     p = np.concatenate(pers).astype(np.float64)
     bmax = float(np.quantile(b, 0.98))
     pmax = float(np.quantile(p, 0.98))
-    bmax = max(bmax, 1.0)
-    pmax = max(pmax, 1.0)
-    return bmax, pmax
+    return max(bmax, 1.0), max(pmax, 1.0)
 
 def fit_imagers_multiscale(dgms, pixel_sizes=(0.03, 0.05, 0.08)):
-    # pixel_sizes only controls how many PI channels you concatenate (same size per channel)
+    # pixel_sizes only determines how many channels you use; each channel is fixed 32x32
+    pixel_sizes = tuple(pixel_sizes) if len(tuple(pixel_sizes)) else (0.05,)
+
     h1 = [d[1] for d in dgms]
     h2 = [d[2] for d in dgms]
     bmax1, pmax1 = _infer_ranges(h1)
@@ -343,7 +285,7 @@ def diagram_to_pi(pim: PIModel, dgm):
     B, P = np.meshgrid(bg, pg, indexing="xy")
 
     Z = np.zeros_like(B, dtype=np.float32)
-    s2 = pim.sigma ** 2
+    s2 = float(pim.sigma) ** 2
     for (b, pers) in bp:
         Z += np.exp(-((B - b) ** 2 + (P - pers) ** 2) / (2.0 * s2)).astype(np.float32)
 
@@ -351,11 +293,12 @@ def diagram_to_pi(pim: PIModel, dgm):
     return Z.ravel().astype(np.float32)
 
 def diagram_to_pis(pims, dgm):
-    return np.concatenate([diagram_to_pi(pim, dgm) for pim in pims], axis=0).astype(np.float32)
+    vecs = [diagram_to_pi(pim, dgm) for pim in pims]
+    return np.concatenate(vecs, axis=0).astype(np.float32)
 
 
 # ============================
-# Diagram distances
+# Diagram distances (robust)
 # ============================
 def _sw_1d(u, v):
     u = np.sort(u.astype(np.float32))
@@ -369,7 +312,7 @@ def _sw_1d(u, v):
         v = np.interp(np.linspace(0, 1, m), np.linspace(0, 1, max(1, len(v))), v if len(v) else np.array([0.0], dtype=np.float32)).astype(np.float32)
     return float(np.mean(np.abs(u - v)))
 
-def sliced_wasserstein(dgm_a, dgm_b, n_dirs=40, seed=0):
+def sliced_wasserstein(dgm_a, dgm_b, n_dirs=30, seed=0):
     rng = np.random.default_rng(seed)
     A = finite_bars(dgm_a)
     B = finite_bars(dgm_b)
@@ -389,37 +332,29 @@ def sliced_wasserstein(dgm_a, dgm_b, n_dirs=40, seed=0):
     return float(np.mean(ds))
 
 def safe_wasserstein(dgm_a, dgm_b, order=1, internal_p=2):
+    if _persim_wasserstein is None:
+        return sliced_wasserstein(dgm_a, dgm_b, n_dirs=30, seed=0)
     a = finite_bars(dgm_a)
     b = finite_bars(dgm_b)
-    if _persim_wasserstein is None:
-        return sliced_wasserstein(a, b, n_dirs=40, seed=0)
     try:
         return float(_persim_wasserstein(a, b, matching=False, order=order, internal_p=internal_p))
     except TypeError:
         try:
-            return float(_persim_wasserstein(a, b, order=order, internal_p=internal_p))
+            return float(_persim_wasserstein(a, b, order=order))
         except TypeError:
-            try:
-                return float(_persim_wasserstein(a, b, order=order))
-            except TypeError:
-                return float(_persim_wasserstein(a, b))
+            return float(_persim_wasserstein(a, b))
 
-def safe_bottleneck(dgm_a, dgm_b):
-    if _persim_bottleneck is None:
-        return sliced_wasserstein(dgm_a, dgm_b, n_dirs=40, seed=1)
-    return float(_persim_bottleneck(finite_bars(dgm_a), finite_bars(dgm_b)))
-
-def prototype_diagrams(dgms, y, n_classes, dim=1, cap_per_class=25, seed=0, metric="wasserstein"):
+def prototype_diagrams(dgms, y, n_classes, dim=1, cap_per_class=20, seed=0, metric="wasserstein"):
     rng = np.random.default_rng(seed)
     protos = []
-    for c in range(n_classes):
+    for c in range(int(n_classes)):
         idx = np.where(y == c)[0]
         if len(idx) == 0:
             protos.append(np.zeros((0, 2), dtype=np.float32))
             continue
-        if len(idx) > cap_per_class:
-            idx = rng.choice(idx, size=cap_per_class, replace=False)
-        H = [dgms[i][dim] for i in idx]
+        if len(idx) > int(cap_per_class):
+            idx = rng.choice(idx, size=int(cap_per_class), replace=False)
+        H = [dgms[i][int(dim)] for i in idx]
         m = len(H)
         if m == 1:
             protos.append(H[0])
@@ -427,10 +362,8 @@ def prototype_diagrams(dgms, y, n_classes, dim=1, cap_per_class=25, seed=0, metr
         D = np.zeros((m, m), dtype=np.float32)
         for i in range(m):
             for j in range(i + 1, m):
-                if metric == "bottleneck":
-                    d = safe_bottleneck(H[i], H[j])
-                elif metric == "sliced":
-                    d = sliced_wasserstein(H[i], H[j], n_dirs=40, seed=seed + i * 1000 + j)
+                if metric == "sliced":
+                    d = sliced_wasserstein(H[i], H[j], n_dirs=30, seed=seed + i * 1000 + j)
                 else:
                     d = safe_wasserstein(H[i], H[j])
                 D[i, j] = d
@@ -442,17 +375,15 @@ def prototype_diagrams(dgms, y, n_classes, dim=1, cap_per_class=25, seed=0, metr
 def distances_to_prototypes(dgm, protos, metric="wasserstein", seed=0):
     out = []
     for i, p in enumerate(protos):
-        if metric == "bottleneck":
-            out.append(safe_bottleneck(dgm, p))
-        elif metric == "sliced":
-            out.append(sliced_wasserstein(dgm, p, n_dirs=40, seed=seed + 777 * i))
+        if metric == "sliced":
+            out.append(sliced_wasserstein(dgm, p, n_dirs=30, seed=seed + 777 * i))
         else:
             out.append(safe_wasserstein(dgm, p))
     return np.array(out, dtype=np.float32)
 
 
 # ============================
-# Density summaries
+# Density summaries (fixed length)
 # ============================
 def knn_radius(points, k=10):
     X = np.asarray(points, dtype=np.float32)
@@ -461,78 +392,19 @@ def knn_radius(points, k=10):
     nn = np.partition(D, kth=int(k) - 1, axis=1)[:, int(k) - 1]
     return nn.astype(np.float32)
 
-def density_filtration_summaries(points, fracs=(0.4, 0.6, 0.8, 1.0), k=10, maxdim=2):
+def density_filtration_summaries(points, fracs=(0.5, 0.8, 1.0), k=10, maxdim=2):
     X = np.asarray(points, dtype=np.float32)
     r = knn_radius(X, k=int(k))
     order = np.argsort(r)
-
     out = []
     for f in fracs:
-        m = max(8, int(np.floor(float(f) * X.shape[0])))
+        m = max(12, int(np.floor(float(f) * X.shape[0])))
         idx = order[:m]
-        dg = persistence_diagrams(X[idx], maxdim=maxdim)
+        dg = persistence_diagrams(X[idx], maxdim=int(maxdim))
         for dim in range(3):
             dgm = dg[dim] if dim < len(dg) else np.zeros((0, 2), dtype=np.float32)
             out.append(float(persistence_entropy(dgm)))
             out.append(float(total_persistence(dgm, power=1)))
-            out.append(float(total_persistence(dgm, power=2)))
             out.extend(topk_lifetimes(dgm, k=6).tolist())
     return np.array(out, dtype=np.float32)
-
-
-# ============================
-# Kept for import compatibility
-# ============================
-def pss_kernel_features(dgm, grid_birth=(0.0, 2.5), grid_pers=(0.0, 2.5), nb=32, npers=32, sigma=0.15):
-    # fixed-size output
-    return np.zeros((int(nb) * int(npers),), dtype=np.float32)
-
-
-def circular_coordinates(points, coeff=47, eps=None):
-    # minimal safe stub (kept for app imports)
-    out = ripser(np.asarray(points, dtype=np.float32), maxdim=1)
-    dgms = out["dgms"]
-    if len(dgms) < 2:
-        return None, None, None, out
-    dgm1 = dgms[1]
-    bars = finite_bars(dgm1)
-    if len(bars) == 0:
-        return None, None, None, out
-    pers = bars[:, 1] - bars[:, 0]
-    mx = int(np.argmax(pers))
-    birth = float(bars[mx, 0])
-    death = float(bars[mx, 1])
-    return None, birth, death, out
-
-
-def lens_pca(points, n_components=2):
-    X = np.asarray(points, dtype=np.float32)
-    k = min(int(n_components), X.shape[1], X.shape[0])
-    pca = PCA(n_components=k, random_state=0)
-    Z = pca.fit_transform(X)
-    if Z.shape[1] < int(n_components):
-        pad = np.zeros((Z.shape[0], int(n_components) - Z.shape[1]), dtype=np.float32)
-        Z = np.hstack([Z, pad])
-    return Z.astype(np.float32)
-
-
-def mapper_graph(points, lens, n_intervals=10, overlap=0.3, dbscan_eps=0.25, min_samples=5):
-    X = np.asarray(points, dtype=np.float32)
-    lens = np.asarray(lens, dtype=np.float32)
-    if lens.ndim == 1:
-        lens = lens.reshape(-1, 1)
-
-    n = X.shape[0]
-    idx = np.arange(n, dtype=np.int64)
-    # minimal single-node graph (fixed + safe)
-    return {
-        "nodes": [0],
-        "node_points": [idx],
-        "node_lens_mean": [np.mean(lens, axis=0).astype(np.float32)],
-        "edges": [],
-    }
-
-
-def mapper_spectral_features(G, k_eigs=12):
-    return np.zeros((int(k_eigs) + 6,), dtype=np.float32)
 
