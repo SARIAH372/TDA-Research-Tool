@@ -1,4 +1,5 @@
-# topo.py
+
+       # topo.py
 import numpy as np
 from ripser import ripser
 from persim import PersistenceImager, wasserstein
@@ -16,15 +17,15 @@ from sklearn.cluster import DBSCAN
 # ============================
 def make_circle(n=200, r=1.0, noise=0.03, seed=7):
     rng = np.random.default_rng(seed)
-    t = rng.uniform(0, 2*np.pi, size=n)
-    x = r*np.cos(t) + rng.normal(scale=noise, size=n)
-    y = r*np.sin(t) + rng.normal(scale=noise, size=n)
+    t = rng.uniform(0, 2 * np.pi, size=n)
+    x = r * np.cos(t) + rng.normal(scale=noise, size=n)
+    y = r * np.sin(t) + rng.normal(scale=noise, size=n)
     return np.c_[x, y].astype(np.float32)
 
 def make_two_circles(n=220, r=1.0, sep=2.6, noise=0.03, seed=7):
     n1 = n // 2
     p1 = make_circle(n=n1, r=r, noise=noise, seed=seed)
-    p2 = make_circle(n=n-n1, r=r, noise=noise, seed=seed+1)
+    p2 = make_circle(n=n - n1, r=r, noise=noise, seed=seed + 1)
     p1[:, 0] -= sep / 2
     p2[:, 0] += sep / 2
     return np.vstack([p1, p2]).astype(np.float32)
@@ -39,10 +40,10 @@ def make_blob_2d(n=200, scale=0.6, noise=0.0, seed=7):
 def make_figure8(n=240, r=1.0, sep=1.3, noise=0.03, seed=7):
     rng = np.random.default_rng(seed)
     n1 = n // 2
-    t1 = rng.uniform(0, 2*np.pi, size=n1)
-    t2 = rng.uniform(0, 2*np.pi, size=n-n1)
-    c1 = np.c_[r*np.cos(t1) - sep/2, r*np.sin(t1)]
-    c2 = np.c_[r*np.cos(t2) + sep/2, r*np.sin(t2)]
+    t1 = rng.uniform(0, 2 * np.pi, size=n1)
+    t2 = rng.uniform(0, 2 * np.pi, size=n - n1)
+    c1 = np.c_[r * np.cos(t1) - sep / 2, r * np.sin(t1)]
+    c2 = np.c_[r * np.cos(t2) + sep / 2, r * np.sin(t2)]
     p = np.vstack([c1, c2]) + rng.normal(scale=noise, size=(n, 2))
     return p.astype(np.float32)
 
@@ -60,21 +61,21 @@ def make_sphere(n=260, r=1.0, noise=0.02, seed=7):
     rng = np.random.default_rng(seed)
     u = rng.uniform(0, 1, size=n)
     v = rng.uniform(0, 1, size=n)
-    theta = 2*np.pi*u
-    phi = np.arccos(2*v - 1)
-    x = r*np.sin(phi)*np.cos(theta)
-    y = r*np.sin(phi)*np.sin(theta)
-    z = r*np.cos(phi)
+    theta = 2 * np.pi * u
+    phi = np.arccos(2 * v - 1)
+    x = r * np.sin(phi) * np.cos(theta)
+    y = r * np.sin(phi) * np.sin(theta)
+    z = r * np.cos(phi)
     p = np.c_[x, y, z] + rng.normal(scale=noise, size=(n, 3))
     return p.astype(np.float32)
 
 def make_torus(n=320, R=1.3, r=0.45, noise=0.02, seed=7):
     rng = np.random.default_rng(seed)
-    u = rng.uniform(0, 2*np.pi, size=n)
-    v = rng.uniform(0, 2*np.pi, size=n)
-    x = (R + r*np.cos(v)) * np.cos(u)
-    y = (R + r*np.cos(v)) * np.sin(u)
-    z = r*np.sin(v)
+    u = rng.uniform(0, 2 * np.pi, size=n)
+    v = rng.uniform(0, 2 * np.pi, size=n)
+    x = (R + r * np.cos(v)) * np.cos(u)
+    y = (R + r * np.cos(v)) * np.sin(u)
+    z = r * np.sin(v)
     p = np.c_[x, y, z] + rng.normal(scale=noise, size=(n, 3))
     return p.astype(np.float32)
 
@@ -124,7 +125,8 @@ def persistence(points, maxdim=2, do_cocycles=False, coeff=47):
     return ripser(points, maxdim=maxdim, do_cocycles=do_cocycles, coeff=int(coeff))
 
 def persistence_diagrams(points, maxdim=2):
-    return persistence(points, maxdim=maxdim, do_cocycles=False)["dgms"]
+    out = persistence(points, maxdim=maxdim, do_cocycles=False)
+    return out["dgms"]
 
 def _knn_adjacency(points, k=10):
     X = np.asarray(points, dtype=np.float32)
@@ -282,6 +284,7 @@ def _fit_imager(train_dgms, pixel_size=0.05):
             continue
         births.append(bars[:, 0])
         deaths.append(bars[:, 1])
+
     if len(births) == 0:
         birth_range, pers_range = (0.0, 1.0), (0.0, 1.0)
     else:
@@ -292,8 +295,20 @@ def _fit_imager(train_dgms, pixel_size=0.05):
         p0, p1 = np.quantile(p, [0.02, 0.98])
         birth_range = (float(max(0.0, b0)), float(b1))
         pers_range = (float(max(0.0, p0)), float(p1))
+
     pim = PersistenceImager(pixel_size=float(pixel_size))
-    pim.fit(birth_range=birth_range, pers_range=pers_range)
+
+    try:
+        pim.fit(birth_range=birth_range, pers_range=pers_range)
+    except TypeError:
+        bmin, bmax = birth_range
+        pmin, pmax = pers_range
+        fake = np.array([[bmin, bmin + pmin], [bmax, bmax + pmax]], dtype=np.float32)
+        try:
+            pim.fit(fake)
+        except Exception:
+            pim.fit([fake])
+
     return pim
 
 def fit_imagers_multiscale(dgms, pixel_sizes=(0.03, 0.05, 0.08)):
@@ -338,9 +353,17 @@ def _sw_1d(u, v):
     if m == 0:
         return 0.0
     if len(u) != m:
-        u = np.interp(np.linspace(0, 1, m), np.linspace(0, 1, len(u) if len(u) else 1), u if len(u) else np.array([0.0], dtype=np.float32)).astype(np.float32)
+        u = np.interp(
+            np.linspace(0, 1, m),
+            np.linspace(0, 1, len(u) if len(u) else 1),
+            u if len(u) else np.array([0.0], dtype=np.float32),
+        ).astype(np.float32)
     if len(v) != m:
-        v = np.interp(np.linspace(0, 1, m), np.linspace(0, 1, len(v) if len(v) else 1), v if len(v) else np.array([0.0], dtype=np.float32)).astype(np.float32)
+        v = np.interp(
+            np.linspace(0, 1, m),
+            np.linspace(0, 1, len(v) if len(v) else 1),
+            v if len(v) else np.array([0.0], dtype=np.float32),
+        ).astype(np.float32)
     return float(np.mean(np.abs(u - v)))
 
 def sliced_wasserstein(dgm_a, dgm_b, n_dirs=50, seed=0, use_birth_persist=True):
@@ -397,7 +420,10 @@ def distances_to_prototypes(dgm, protos, metric="wasserstein", seed=0):
     if metric == "bottleneck" and bottleneck is not None:
         return np.array([safe_bottleneck(dgm, p) for p in protos], dtype=np.float32)
     if metric == "sliced":
-        return np.array([sliced_wasserstein(dgm, p, n_dirs=40, seed=seed + 777 * i) for i, p in enumerate(protos)], dtype=np.float32)
+        return np.array(
+            [sliced_wasserstein(dgm, p, n_dirs=40, seed=seed + 777 * i) for i, p in enumerate(protos)],
+            dtype=np.float32,
+        )
     return np.array([safe_wasserstein(dgm, p, order=1, internal_p=2) for p in protos], dtype=np.float32)
 
 # ============================
@@ -412,7 +438,7 @@ def pss_kernel_features(dgm, grid_birth=(0.0, 2.5), grid_pers=(0.0, 2.5), nb=32,
     pmin, pmax = float(grid_pers[0]), float(grid_pers[1])
     bg = np.linspace(bmin, bmax, int(nb), dtype=np.float32)
     pg = np.linspace(pmin, pmax, int(npers), dtype=np.float32)
-    B, P = np.meshgrid(bg, pg, indexing="xy")  # [npers, nb]
+    B, P = np.meshgrid(bg, pg, indexing="xy")
     Z = np.zeros_like(B, dtype=np.float32)
     s2 = float(sigma) ** 2
     for (b, pers) in bp:
@@ -421,7 +447,7 @@ def pss_kernel_features(dgm, grid_birth=(0.0, 2.5), grid_pers=(0.0, 2.5), nb=32,
     return Z.ravel().astype(np.float32)
 
 # ============================
-# Density-filtration proxy (multi-threshold PH summaries)
+# Density-filtration proxy
 # ============================
 def knn_radius(points, k=10):
     X = np.asarray(points, dtype=np.float32)
@@ -551,8 +577,10 @@ def mapper_graph(points, lens, n_intervals=10, overlap=0.3, dbscan_eps=0.25, min
         lens = lens.reshape(-1, 1)
     n = X.shape[0]
     d_lens = lens.shape[1]
+
     covers = [cover_intervals(lens[:, j], n_intervals=n_intervals, overlap=overlap) for j in range(d_lens)]
     boxes = []
+
     def rec_build(j, cur):
         if j == d_lens:
             boxes.append(list(cur))
@@ -561,6 +589,7 @@ def mapper_graph(points, lens, n_intervals=10, overlap=0.3, dbscan_eps=0.25, min
             cur.append(itv)
             rec_build(j + 1, cur)
             cur.pop()
+
     rec_build(0, [])
 
     nodes = []
