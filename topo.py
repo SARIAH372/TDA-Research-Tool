@@ -346,7 +346,28 @@ def diagram_to_pis(pims, dgm):
 def safe_wasserstein(dgm_a, dgm_b, order=1, internal_p=2):
     a = finite_bars(dgm_a)
     b = finite_bars(dgm_b)
-    return float(wasserstein(a, b, matching=False, order=order, internal_p=internal_p))
+
+    # Try modern persim signature
+    try:
+        return float(wasserstein(a, b, matching=False, order=order, internal_p=internal_p))
+    except TypeError:
+        pass
+
+    # Try without matching=
+    try:
+        return float(wasserstein(a, b, order=order, internal_p=internal_p))
+    except TypeError:
+        pass
+
+    # Try only order
+    try:
+        return float(wasserstein(a, b, order=order))
+    except TypeError:
+        pass
+
+    # Oldest signature: just (dgm1, dgm2)
+    return float(wasserstein(a, b))
+
 
 def safe_bottleneck(dgm_a, dgm_b):
     if bottleneck is None:
@@ -673,4 +694,5 @@ def mapper_spectral_features(G, k_eigs=12):
     tri = float(np.trace(A @ A @ A) / 6.0) if n else 0.0
     stats = np.array([n_nodes, n_edges, avg_deg, max_deg, conn, tri], dtype=np.float32)
     return np.concatenate([out, stats], axis=0).astype(np.float32)
+
 
