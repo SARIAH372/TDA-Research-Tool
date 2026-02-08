@@ -121,12 +121,22 @@ def make_model(kind, seed):
     if kind == "LogReg":
         return Pipeline([
             ("scaler", StandardScaler()),
-            ("clf", LogisticRegression(C=1.0, max_iter=900, multi_class="auto", random_state=int(seed)))
+            ("clf", LogisticRegression(
+                C=1.0,
+                max_iter=1000,
+                solver="lbfgs",   # works in ALL sklearn versions
+                random_state=int(seed)
+            ))
         ])
     return Pipeline([
         ("scaler", StandardScaler()),
-        ("clf", MLPClassifier(hidden_layer_sizes=(128, 64), max_iter=700, random_state=int(seed)))
+        ("clf", MLPClassifier(
+            hidden_layer_sizes=(128, 64),
+            max_iter=700,
+            random_state=int(seed)
+        ))
     ])
+
 
 
 def fit_ensemble(kind, Xtr, ytr, n_models=5, seed=7):
@@ -565,3 +575,4 @@ with tabs[6]:
             st.write({"pred": class_names[pred_idx], "conf": conf})
             for k, name in enumerate(class_names):
                 st.write(f"{name}: {p_mean[k]:.3f} ± {p_std[k]:.3f}")
+
