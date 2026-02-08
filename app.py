@@ -42,6 +42,7 @@ from topo import (
     circular_coordinates,
     lens_pca, mapper_graph, mapper_spectral_features,
 )
+st.write("BUILD_TAG: 2026-02-08_nanfix_v1")
 
 st.set_page_config(page_title="TDA Research Tool", layout="wide")
 st.title("TDA Research Tool")
@@ -602,6 +603,7 @@ with tabs[6]:
             st.write({"pred": class_names[pred_idx], "conf": conf})
             for k, name in enumerate(class_names):
                 st.write(f"{name}: {p_mean[k]:.3f} ± {p_std[k]:.3f}")
+
 
 
 
