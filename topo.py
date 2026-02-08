@@ -1,15 +1,18 @@
 
 
 
-    # topo.py  (full-feature, Streamlit-Cloud-safe: NO persim dependency)
+  
+    
+       # topo.py
 import numpy as np
 from ripser import ripser
 from sklearn.decomposition import PCA
 from sklearn.cluster import DBSCAN
 
-# ============================================================
+
+# ============================
 # Generators (2D)
-# ============================================================
+# ============================
 def make_circle(n=200, r=1.0, noise=0.03, seed=7):
     rng = np.random.default_rng(seed)
     t = rng.uniform(0, 2*np.pi, size=n)
@@ -42,9 +45,10 @@ def make_figure8(n=240, r=1.0, sep=1.3, noise=0.03, seed=7):
     p = np.vstack([c1, c2]) + rng.normal(scale=noise, size=(n, 2))
     return p.astype(np.float32)
 
-# ============================================================
+
+# ============================
 # Generators (3D)
-# ============================================================
+# ============================
 def make_3d_blob(n=260, scale=0.7, noise=0.0, seed=7):
     rng = np.random.default_rng(seed)
     p = rng.normal(scale=scale, size=(n, 3))
@@ -86,9 +90,10 @@ SHAPES_3D = {
     "3D torus": make_torus,
 }
 
-# ============================================================
+
+# ============================
 # Mixed dataset
-# ============================================================
+# ============================
 def make_dataset_mixed(n_samples=400, n_points=140, noise_2d=0.03, noise_3d=0.02, p_3d=0.45, seed=7):
     rng = np.random.default_rng(seed)
     keys2 = list(SHAPES_2D.keys())
@@ -113,18 +118,18 @@ def make_dataset_mixed(n_samples=400, n_points=140, noise_2d=0.03, noise_3d=0.02
 
     return X, np.array(y, dtype=np.int64), class_names
 
-# ============================================================
-# Persistent homology
-# ============================================================
-def persistence_diagrams(points, maxdim=2, do_cocycles=False, coeff=47):
-    return ripser(points, maxdim=int(maxdim), do_cocycles=bool(do_cocycles), coeff=int(coeff))
 
+# ============================
+# Persistent homology (euclidean)
+# ============================
 def dgms_only(points, maxdim=2):
-    return persistence_diagrams(points, maxdim=maxdim, do_cocycles=False)["dgms"]
+    out = ripser(np.asarray(points, dtype=np.float32), maxdim=int(maxdim))
+    return out["dgms"]
 
-# ============================================================
-# Geodesic PH (kNN shortest-path distance matrix)
-# ============================================================
+
+# ============================
+# Geodesic PH (kNN shortest paths)
+# ============================
 def _knn_adjacency(points, k=10):
     X = np.asarray(points, dtype=np.float32)
     n = X.shape[0]
@@ -170,9 +175,10 @@ def dgms_geodesic(points, k=10, maxdim=2):
     out = ripser(G, distance_matrix=True, maxdim=int(maxdim))
     return out["dgms"], G
 
-# ============================================================
-# Diagram utilities
-# ============================================================
+
+# ============================
+# Diagram utilities / features
+# ============================
 def finite_bars(dgm):
     if dgm is None or len(dgm) == 0:
         return np.zeros((0, 2), dtype=np.float32)
@@ -240,7 +246,7 @@ def landscape_samples(dgm, grid, k_levels=3):
     return Tsort[: int(k_levels), :]
 
 def tda_feature_block(dgms, grid_len=64, topk=8, k_levels=3):
-    grid = np.linspace(0.0, 3.0, int(grid_len), dtype=np.float32)  # fixed grid => fixed length
+    grid = np.linspace(0.0, 3.0, int(grid_len), dtype=np.float32)  # fixed
     blocks = []
     for dim in range(3):
         dgm = dgms[dim] if dim < len(dgms) else np.zeros((0, 2), dtype=np.float32)
@@ -253,9 +259,10 @@ def tda_feature_block(dgms, grid_len=64, topk=8, k_levels=3):
         blocks.append(np.concatenate([ent, tp1, tp2, tkl, sil, land], axis=0))
     return np.concatenate(blocks, axis=0).astype(np.float32)
 
-# ============================================================
-# Fixed-length Persistence Images (always 32x32 per channel)
-# ============================================================
+
+# ============================
+# Fixed-length persistence images (32x32 per channel)
+# ============================
 class PIModel:
     def __init__(self, birth_max=3.0, pers_max=3.0, sigma=0.15, nb=32, npers=32):
         self.birth_max = float(birth_max)
@@ -264,11 +271,10 @@ class PIModel:
         self.nb = int(nb)
         self.npers = int(npers)
 
-def fit_imagers_multiscale(dgms, pixel_sizes=(0.03, 0.05, 0.08)):
+def fit_imagers_multiscale(dgms, pixel_sizes=(0.05,)):
     pixel_sizes = tuple(pixel_sizes) if len(tuple(pixel_sizes)) else (0.05,)
-    # channels only; resolution fixed
-    pims_h1 = [PIModel(birth_max=3.0, pers_max=3.0, sigma=0.15, nb=32, npers=32) for _ in pixel_sizes]
-    pims_h2 = [PIModel(birth_max=3.0, pers_max=3.0, sigma=0.15, nb=32, npers=32) for _ in pixel_sizes]
+    pims_h1 = [PIModel() for _ in pixel_sizes]
+    pims_h2 = [PIModel() for _ in pixel_sizes]
     return pims_h1, pims_h2
 
 def diagram_to_pi(pim: PIModel, dgm):
@@ -276,22 +282,26 @@ def diagram_to_pi(pim: PIModel, dgm):
     if len(bars) == 0:
         return np.zeros((pim.npers * pim.nb,), dtype=np.float32)
     bp = np.c_[bars[:, 0], (bars[:, 1] - bars[:, 0])].astype(np.float32)
+
     bg = np.linspace(0.0, pim.birth_max, pim.nb, dtype=np.float32)
     pg = np.linspace(0.0, pim.pers_max, pim.npers, dtype=np.float32)
     B, P = np.meshgrid(bg, pg, indexing="xy")
+
     Z = np.zeros_like(B, dtype=np.float32)
     s2 = float(pim.sigma) ** 2
     for (b, pers) in bp:
         Z += np.exp(-((B - b) ** 2 + (P - pers) ** 2) / (2.0 * s2)).astype(np.float32)
+
     Z = Z / (float(len(bp)) + 1e-12)
     return Z.ravel().astype(np.float32)
 
 def diagram_to_pis(pims, dgm):
     return np.concatenate([diagram_to_pi(pim, dgm) for pim in pims], axis=0).astype(np.float32)
 
-# ============================================================
-# Distances (sliced Wasserstein, fixed + robust)
-# ============================================================
+
+# ============================
+# Sliced Wasserstein distances (pure numpy)
+# ============================
 def _sw_1d(u, v):
     u = np.sort(u.astype(np.float32))
     v = np.sort(v.astype(np.float32))
@@ -299,12 +309,14 @@ def _sw_1d(u, v):
     if m == 0:
         return 0.0
     if len(u) != m:
-        u = np.interp(np.linspace(0, 1, m), np.linspace(0, 1, max(1, len(u))), u if len(u) else np.array([0.0], dtype=np.float32)).astype(np.float32)
+        u = np.interp(np.linspace(0, 1, m), np.linspace(0, 1, max(1, len(u))),
+                      u if len(u) else np.array([0.0], dtype=np.float32)).astype(np.float32)
     if len(v) != m:
-        v = np.interp(np.linspace(0, 1, m), np.linspace(0, 1, max(1, len(v))), v if len(v) else np.array([0.0], dtype=np.float32)).astype(np.float32)
+        v = np.interp(np.linspace(0, 1, m), np.linspace(0, 1, max(1, len(v))),
+                      v if len(v) else np.array([0.0], dtype=np.float32)).astype(np.float32)
     return float(np.mean(np.abs(u - v)))
 
-def sliced_wasserstein(dgm_a, dgm_b, n_dirs=30, seed=0):
+def sliced_wasserstein(dgm_a, dgm_b, n_dirs=25, seed=0):
     rng = np.random.default_rng(seed)
     A = finite_bars(dgm_a)
     B = finite_bars(dgm_b)
@@ -354,9 +366,10 @@ def distances_to_prototypes(dgm, protos, metric="sliced", seed=0):
         out.append(sliced_wasserstein(dgm, p, n_dirs=25, seed=seed + 777*i))
     return np.array(out, dtype=np.float32)
 
-# ============================================================
+
+# ============================
 # Density summaries (fixed length)
-# ============================================================
+# ============================
 def knn_radius(points, k=10):
     X = np.asarray(points, dtype=np.float32)
     D = np.sqrt(((X[:, None, :] - X[None, :, :]) ** 2).sum(axis=2))
@@ -381,16 +394,14 @@ def density_filtration_summaries(points, fracs=(0.5, 0.8, 1.0), k=10, maxdim=2):
             out.extend(topk_lifetimes(dgm, k=6).tolist())
     return np.array(out, dtype=np.float32)
 
-# ============================================================
-# Circular coordinates (safe)
-# ============================================================
+
+# ============================
+# Cohomology (safe: returns theta or None)
+# ============================
 def circular_coordinates(points, coeff=47):
     X = np.asarray(points, dtype=np.float32)
-    out = persistence_diagrams(X, maxdim=1, do_cocycles=True, coeff=int(coeff))
-    dgms = out["dgms"]
-    if len(dgms) < 2:
-        return None, None, None
-    dgm1 = dgms[1]
+    out = ripser(X, maxdim=1, do_cocycles=True, coeff=int(coeff))
+    dgm1 = out["dgms"][1]
     bars = finite_bars(dgm1)
     if len(bars) == 0:
         return None, None, None
@@ -398,18 +409,15 @@ def circular_coordinates(points, coeff=47):
     mx = int(np.argmax(pers))
     birth = float(bars[mx, 0])
     death = float(bars[mx, 1])
-
     cocycles = out.get("cocycles", None)
     if cocycles is None or len(cocycles) < 2 or len(cocycles[1]) == 0:
         return None, birth, death
-
     try:
         cocycle = np.asarray(cocycles[1][mx], dtype=np.int64)
     except Exception:
         return None, birth, death
     if cocycle.ndim != 2 or cocycle.shape[1] != 3:
         return None, birth, death
-
     p = int(coeff)
     cocycle[:, 2] = cocycle[:, 2] % p
 
@@ -424,14 +432,14 @@ def circular_coordinates(points, coeff=47):
         bvec[k] = (2.0 * np.pi) * (float(w) / float(p))
     A[m, 0] = 1.0
     bvec[m] = 0.0
-
     theta, *_ = np.linalg.lstsq(A, bvec, rcond=None)
     theta = np.mod(theta.astype(np.float32), 2.0*np.pi)
     return theta, birth, death
 
-# ============================================================
-# Mapper + spectral features (fixed length)
-# ============================================================
+
+# ============================
+# Mapper + spectral invariants
+# ============================
 def lens_pca(points, n_components=1):
     X = np.asarray(points, dtype=np.float32)
     k = min(int(n_components), X.shape[1], X.shape[0])
@@ -508,7 +516,8 @@ def mapper_spectral_features(G, k_eigs=12):
     if m > 0:
         out[:m] = w[:m]
     stats = np.array(
-        [float(n), float(len(G["edges"])), float(deg.mean()) if n else 0.0, float(deg.max()) if n else 0.0, float(w[1]) if len(w) > 1 else 0.0, float(np.trace(A @ A @ A) / 6.0) if n else 0.0],
+        [float(n), float(len(G["edges"])), float(deg.mean()) if n else 0.0, float(deg.max()) if n else 0.0,
+         float(w[1]) if len(w) > 1 else 0.0, float(np.trace(A @ A @ A) / 6.0) if n else 0.0],
         dtype=np.float32,
     )
     return np.concatenate([out, stats], axis=0).astype(np.float32)
