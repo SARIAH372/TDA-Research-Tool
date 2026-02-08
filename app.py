@@ -7,15 +7,14 @@ import time
 import streamlit as st
 import numpy as np
 import matplotlib.pyplot as plt
-from sklearn.ensemble import HistGradientBoostingClassifier
 
 from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
-from sklearn.linear_model import LogisticRegression
 from sklearn.neural_network import MLPClassifier
 from sklearn.metrics import accuracy_score, confusion_matrix
 from sklearn.utils import resample
+from sklearn.ensemble import HistGradientBoostingClassifier
 
 from topo import (
     SHAPES_2D, SHAPES_3D, make_dataset_mixed,
@@ -33,6 +32,9 @@ st.title("TDA Research Tool")
 
 plt.close("all")
 
+# -----------------------
+# session state
+# -----------------------
 if "models" not in st.session_state:
     st.session_state.models = None
 if "class_names" not in st.session_state:
@@ -100,27 +102,11 @@ def plot_diagram(dgm, title):
 def make_model(kind, seed):
     if kind == "HGB":
         return Pipeline([
-            ("clf", HistGradientBoostingClassifier(
-                random_state=int(seed)
-            ))
-        ])
-    if kind == "LogReg":
-        return Pipeline([
-            ("scaler", StandardScaler()),
-            ("clf", LogisticRegression(
-                C=1.0,
-                max_iter=1000,
-                solver="lbfgs",
-                random_state=int(seed)
-            ))
+            ("clf", HistGradientBoostingClassifier(random_state=int(seed)))
         ])
     return Pipeline([
         ("scaler", StandardScaler()),
-        ("clf", MLPClassifier(
-            hidden_layer_sizes=(128, 64),
-            max_iter=700,
-            random_state=int(seed)
-        ))
+        ("clf", MLPClassifier(hidden_layer_sizes=(128, 64), max_iter=700, random_state=int(seed)))
     ])
 
 
@@ -141,22 +127,28 @@ def ensemble_predict(models, X):
     return probs.mean(axis=0), probs.std(axis=0)
 
 
+def sample_points(pick, offset, n_points, noise_2d, noise_3d, seed):
+    if pick in SHAPES_2D:
+        return SHAPES_2D[pick](n=int(n_points), noise=float(noise_2d), seed=int(seed) + int(offset))
+    return SHAPES_3D[pick](n=int(n_points), noise=float(noise_3d), seed=int(seed) + int(offset))
+
+
 # -----------------------
-# Sidebar params
+# Sidebar
 # -----------------------
 with st.sidebar:
     st.header("Data")
     n_samples = st.slider("n_samples", 50, 1200, 250, step=50)
-    n_points = st.slider("n_points", 40, 320, 140, step=10)
-    p_3d = st.slider("p_3d", 0.10, 0.80, 0.45, step=0.05)
-    noise_2d = st.slider("noise_2d", 0.0, 0.20, 0.03, step=0.01)
-    noise_3d = st.slider("noise_3d", 0.0, 0.20, 0.02, step=0.01)
-    seed = st.number_input("seed", value=7, step=1)
+    n_points  = st.slider("n_points", 40, 320, 140, step=10)
+    p_3d      = st.slider("p_3d", 0.10, 0.80, 0.45, step=0.05)
+    noise_2d  = st.slider("noise_2d", 0.0, 0.20, 0.03, step=0.01)
+    noise_3d  = st.slider("noise_3d", 0.0, 0.20, 0.02, step=0.01)
+    seed      = st.number_input("seed", value=7, step=1)
 
     st.header("Topology")
-    maxdim = st.selectbox("maxdim", [1, 2], index=1)
+    maxdim   = st.selectbox("maxdim", [1, 2], index=1)
     grid_len = st.select_slider("grid_len", options=[32, 64, 96], value=64)
-    topk = st.select_slider("topk", options=[6, 8, 10, 12], value=8)
+    topk     = st.select_slider("topk", options=[6, 8, 10, 12], value=8)
     k_levels = st.select_slider("k_levels", options=[2, 3, 4], value=3)
 
     st.header("Persistence Images")
@@ -165,55 +157,37 @@ with st.sidebar:
         pi_channels = [0.05]
 
     st.header("Geodesic")
-    use_geodesic = st.checkbox("use_geodesic", value=False)
     geo_k = st.slider("geo_k", 4, 20, 10, step=1)
 
-    st.header("Density filtration")
-    use_density = st.checkbox("use_density", value=False)
+    st.header("Density")
     dens_k = st.slider("dens_k", 6, 16, 10, step=1)
 
     st.header("Prototype distances")
-    use_proto = st.checkbox("use_prototype_distances", value=True)
     proto_cap = st.slider("proto_cap", 8, 30, 15, step=1)
 
     st.header("Cohomology")
-    use_circ = st.checkbox("use_circular_coordinates", value=False)
     circ_coeff = st.select_slider("circ_coeff", options=[31, 47, 59, 83, 101], value=47)
 
     st.header("Mapper")
-    use_mapper = st.checkbox("use_mapper", value=False)
     mapper_intervals = st.slider("mapper_intervals", 4, 24, 10, step=1)
-    mapper_overlap = st.slider("mapper_overlap", 0.0, 0.8, 0.30, step=0.05)
-    mapper_db_eps = st.slider("mapper_db_eps", 0.05, 2.0, 0.25, step=0.01)
-    mapper_min_s = st.slider("mapper_min_samples", 2, 25, 5, step=1)
+    mapper_overlap   = st.slider("mapper_overlap", 0.0, 0.8, 0.30, step=0.05)
+    mapper_db_eps    = st.slider("mapper_db_eps", 0.05, 2.0, 0.25, step=0.01)
+    mapper_min_s     = st.slider("mapper_min_samples", 2, 25, 5, step=1)
 
     st.header("Model")
-    model_kind = st.selectbox("model_kind", ["HGB", "LogReg", "MLP"], index=0)
+    model_kind = st.selectbox("model_kind", ["HGB", "MLP"], index=0)
+    ens        = st.select_slider("ensemble", options=[3, 5, 7], value=5)
 
-    ens = st.select_slider("ensemble", options=[3, 5, 7], value=5)
 
-
-# -----------------------
-# Tabs
-# -----------------------
 tabs = st.tabs(["PH", "Geodesic", "Density", "Cohomology", "Mapper", "Train", "Predict"])
 
 
-# -----------------------
-# Common sample generator for tabs
-# -----------------------
-def sample_points(pick, seed_offset):
-    if pick in SHAPES_2D:
-        return SHAPES_2D[pick](n=int(n_points), noise=float(noise_2d), seed=int(seed) + seed_offset)
-    return SHAPES_3D[pick](n=int(n_points), noise=float(noise_3d), seed=int(seed) + seed_offset)
-
-
 # ============================================================
-# PH tab
+# PH
 # ============================================================
 with tabs[0]:
     pick = st.selectbox("shape_ph", list(SHAPES_2D.keys()) + list(SHAPES_3D.keys()))
-    pts = sample_points(pick, 101)
+    pts = sample_points(pick, 101, n_points, noise_2d, noise_3d, seed)
     _show(plot_points(pts, f"{pick} dim={pts.shape[1]}"))
 
     dg = dgms_only(pts, maxdim=int(maxdim))
@@ -221,31 +195,34 @@ with tabs[0]:
     with c1: _show(plot_diagram(dg[0], "H0"))
     with c2: _show(plot_diagram(dg[1], "H1"))
     with c3:
-        if int(maxdim) >= 2: _show(plot_diagram(dg[2], "H2"))
-        else: st.write("H2 disabled")
+        if int(maxdim) >= 2:
+            _show(plot_diagram(dg[2], "H2"))
+        else:
+            st.write("H2 disabled")
 
 
 # ============================================================
-# Geodesic tab
+# Geodesic
 # ============================================================
 with tabs[1]:
     pick = st.selectbox("shape_geo", list(SHAPES_2D.keys()) + list(SHAPES_3D.keys()))
-    pts = sample_points(pick, 202)
+    pts = sample_points(pick, 202, n_points, noise_2d, noise_3d, seed)
     _show(plot_points(pts, f"{pick} dim={pts.shape[1]}"))
 
     dg_e = dgms_only(pts, maxdim=int(maxdim))
     dg_g, _ = dgms_geodesic(pts, k=int(geo_k), maxdim=int(maxdim))
+
     c1, c2 = st.columns(2)
     with c1: _show(plot_diagram(dg_e[1], "H1 euclidean"))
     with c2: _show(plot_diagram(dg_g[1], "H1 geodesic"))
 
 
 # ============================================================
-# Density tab
+# Density
 # ============================================================
 with tabs[2]:
     pick = st.selectbox("shape_den", list(SHAPES_2D.keys()) + list(SHAPES_3D.keys()))
-    pts = sample_points(pick, 303)
+    pts = sample_points(pick, 303, n_points, noise_2d, noise_3d, seed)
     _show(plot_points(pts, f"{pick} dim={pts.shape[1]}"))
 
     dens = density_filtration_summaries(pts, fracs=(0.5, 0.8, 1.0), k=int(dens_k), maxdim=int(maxdim))
@@ -253,25 +230,23 @@ with tabs[2]:
 
 
 # ============================================================
-# Cohomology tab (2D only)
+# Cohomology (2D only)
 # ============================================================
 with tabs[3]:
     pick = st.selectbox("shape_cc", list(SHAPES_2D.keys()))
     pts = SHAPES_2D[pick](n=int(n_points), noise=float(noise_2d), seed=int(seed) + 404)
 
-    theta, birth, death = (None, None, None)
-    if use_circ:
-        theta, birth, death = circular_coordinates(pts, coeff=int(circ_coeff))
-    _show(plot_points(pts, f"{pick} colored by theta if enabled", c=theta))
+    theta, birth, death = circular_coordinates(pts, coeff=int(circ_coeff))
+    _show(plot_points(pts, f"{pick} colored by theta (if any)", c=theta))
     st.write({"birth": birth, "death": death})
 
 
 # ============================================================
-# Mapper tab
+# Mapper
 # ============================================================
 with tabs[4]:
     pick = st.selectbox("shape_map", list(SHAPES_2D.keys()) + list(SHAPES_3D.keys()))
-    pts = sample_points(pick, 505)
+    pts = sample_points(pick, 505, n_points, noise_2d, noise_3d, seed)
 
     lens = lens_pca(pts, n_components=1)[:, 0]
     G = mapper_graph(
@@ -286,14 +261,24 @@ with tabs[4]:
 
 
 # ============================================================
-# Train tab
+# Train (with Option A polish + download)
 # ============================================================
 with tabs[5]:
-    col1, col2 = st.columns([1, 1])
+    col1, col2, col3 = st.columns([1, 1, 1])
     with col1:
         start = st.button("train")
     with col2:
         stop = st.button("stop")
+    with col3:
+        reset = st.button("reset")
+
+    if reset:
+        st.session_state.models = None
+        st.session_state.class_names = None
+        st.session_state.fit_pack = None
+        st.session_state.last_train = None
+        st.session_state.stop_requested = False
+        st.success("Reset done.")
 
     if stop:
         st.session_state.stop_requested = True
@@ -312,24 +297,25 @@ with tabs[5]:
         )
 
         prog = st.progress(0.0)
-        txt = st.empty()
+        status = st.empty()
 
         dgms = []
         for i, p in enumerate(pcs):
             _maybe_stop()
             dgms.append(dgms_only(p, maxdim=int(maxdim)))
             prog.progress((i + 1) / max(1, len(pcs)))
-            txt.write(f"dgms: {i+1}/{len(pcs)}")
+            status.write(f"dgms: {i+1}/{len(pcs)}")
+            time.sleep(0.005)
 
         pim_h1, pim_h2 = fit_imagers_multiscale(dgms, pixel_sizes=tuple(pi_channels))
         n_classes = int(np.max(y)) + 1
 
-        if use_proto:
-            protos_h1 = prototype_diagrams(dgms, y, n_classes=n_classes, dim=1, cap_per_class=int(proto_cap), seed=int(seed))
-            protos_h2 = prototype_diagrams(dgms, y, n_classes=n_classes, dim=2, cap_per_class=int(proto_cap), seed=int(seed) + 1) if int(maxdim) >= 2 else [np.zeros((0, 2), dtype=np.float32) for _ in range(n_classes)]
-        else:
-            protos_h1 = [np.zeros((0, 2), dtype=np.float32) for _ in range(n_classes)]
-            protos_h2 = [np.zeros((0, 2), dtype=np.float32) for _ in range(n_classes)]
+        protos_h1 = prototype_diagrams(dgms, y, n_classes=n_classes, dim=1, cap_per_class=int(proto_cap), seed=int(seed))
+        protos_h2 = (
+            prototype_diagrams(dgms, y, n_classes=n_classes, dim=2, cap_per_class=int(proto_cap), seed=int(seed) + 1)
+            if int(maxdim) >= 2 else
+            [np.zeros((0, 2), dtype=np.float32) for _ in range(n_classes)]
+        )
 
         mapper_dim = 18
         dens_len = int(density_filtration_summaries(pcs[0], fracs=(0.5, 0.8, 1.0), k=int(dens_k), maxdim=int(maxdim)).shape[0])
@@ -346,168 +332,95 @@ with tabs[5]:
 
             hard = tda_feature_block(dg, grid_len=int(grid_len), topk=int(topk), k_levels=int(k_levels))
 
-            if use_proto:
-                d1 = distances_to_prototypes(dg[1], protos_h1, seed=int(seed) + 100)
-                d2 = distances_to_prototypes(dg[2], protos_h2, seed=int(seed) + 200) if int(maxdim) >= 2 else np.zeros_like(d1)
-            else:
-                d1 = np.zeros((n_classes,), dtype=np.float32)
-                d2 = np.zeros((n_classes,), dtype=np.float32)
+            d1 = distances_to_prototypes(dg[1], protos_h1, seed=int(seed) + 100)
+            d2 = distances_to_prototypes(dg[2], protos_h2, seed=int(seed) + 200) if int(maxdim) >= 2 else np.zeros_like(d1)
 
-            dens = density_filtration_summaries(p, fracs=(0.5, 0.8, 1.0), k=int(dens_k), maxdim=int(maxdim)) if use_density else np.zeros((dens_len,), dtype=np.float32)
+            dens = density_filtration_summaries(p, fracs=(0.5, 0.8, 1.0), k=int(dens_k), maxdim=int(maxdim))
             if dens.shape[0] != dens_len:
                 tmp = np.zeros((dens_len,), dtype=np.float32)
                 tmp[:min(dens_len, dens.shape[0])] = dens[:min(dens_len, dens.shape[0])]
                 dens = tmp
 
-            mapper_feat = np.zeros((mapper_dim,), dtype=np.float32)
-            if use_mapper:
-                lens = lens_pca(p, n_components=1)[:, 0]
-                G = mapper_graph(p, lens=lens, n_intervals=int(mapper_intervals), overlap=float(mapper_overlap),
-                                 dbscan_eps=float(mapper_db_eps), min_samples=int(mapper_min_s))
-                mapper_feat = mapper_spectral_features(G, k_eigs=12)
+            lens = lens_pca(p, n_components=1)[:, 0]
+            G = mapper_graph(p, lens=lens, n_intervals=int(mapper_intervals), overlap=float(mapper_overlap),
+                             dbscan_eps=float(mapper_db_eps), min_samples=int(mapper_min_s))
+            mapper_feat = mapper_spectral_features(G, k_eigs=12)
+            if mapper_feat.shape[0] != mapper_dim:
+                tmp = np.zeros((mapper_dim,), dtype=np.float32)
+                tmp[:min(mapper_dim, mapper_feat.shape[0])] = mapper_feat[:min(mapper_dim, mapper_feat.shape[0])]
+                mapper_feat = tmp
 
             feat = np.concatenate([pi1, pi2, hard, d1, d2, dens, mapper_feat], axis=0).astype(np.float32)
             if feat.shape[0] != total_len:
                 tmp = np.zeros((total_len,), dtype=np.float32)
                 tmp[:min(total_len, feat.shape[0])] = feat[:min(total_len, feat.shape[0])]
                 feat = tmp
+
             Xfeat.append(feat)
 
         X = np.vstack(Xfeat).astype(np.float32)
         X = np.nan_to_num(X, nan=0.0, posinf=0.0, neginf=0.0)
 
-        # ----- train / test split -----
-Xtr, Xte, ytr, yte = train_test_split(
-    X,
-    y,
-    test_size=0.25,
-    random_state=int(seed),
-    stratify=y,
-)
+        Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.25, random_state=int(seed), stratify=y)
 
-# hard safety against NaNs (never hurts)
-Xtr = np.nan_to_num(Xtr, nan=0.0, posinf=0.0, neginf=0.0)
-Xte = np.nan_to_num(Xte, nan=0.0, posinf=0.0, neginf=0.0)
+        models = fit_ensemble(model_kind, Xtr, ytr, n_models=int(ens), seed=int(seed))
+        p_mean, _ = ensemble_predict(models, Xte)
+        pred = np.argmax(p_mean, axis=1)
+        acc = accuracy_score(yte, pred)
 
-# ----- fit ensemble -----
-models = fit_ensemble(
-    model_kind,
-    Xtr,
-    ytr,
-    n_models=int(ens),
-    seed=int(seed),
-)
+        # per-class + macro acc
+        per_class_acc = []
+        for c in range(len(class_names)):
+            mask = (yte == c)
+            if mask.sum() == 0:
+                per_class_acc.append(np.nan)
+            else:
+                per_class_acc.append(float((pred[mask] == c).mean()))
+        macro_acc = float(np.nanmean(per_class_acc))
 
-# ----- evaluate -----
-p_mean, _ = ensemble_predict(models, Xte)
-pred = np.argmax(p_mean, axis=1)
-acc = accuracy_score(yte, pred)
+        st.write({"acc": float(acc), "macro_acc": macro_acc})
 
-# ----- per-class accuracy -----
-per_class_acc = []
-for c in range(len(class_names)):
-    mask = (yte == c)
-    if mask.sum() == 0:
-        per_class_acc.append(np.nan)
-    else:
-        per_class_acc.append(float((pred[mask] == c).mean()))
-
-macro_acc = float(np.nanmean(per_class_acc))
-
-st.write({
-    "acc": float(acc),
-    "macro_acc": macro_acc,
-})
-
-
-
-                
-
-        # ===== per-class accuracy table =====
-        rows = []
-        for i, name in enumerate(class_names):
-            rows.append({
-                "class": name,
-                "accuracy": per_class_acc[i],
-            })
-
+        rows = [{"class": class_names[i], "accuracy": per_class_acc[i]} for i in range(len(class_names))]
         st.dataframe(rows, use_container_width=True)
 
-        # ===== confusion matrix =====
-        cm = confusion_matrix(
-            yte,
-            pred,
-            labels=np.arange(len(class_names)),
-        )
-
+        # labeled confusion matrix
+        cm = confusion_matrix(yte, pred, labels=np.arange(len(class_names)))
         fig, ax = plt.subplots()
         im = ax.imshow(cm)
-
         ax.set_title("Confusion Matrix")
         ax.set_xlabel("Predicted")
         ax.set_ylabel("True")
-
         ax.set_xticks(np.arange(len(class_names)))
         ax.set_yticks(np.arange(len(class_names)))
         ax.set_xticklabels(class_names, rotation=45, ha="right")
         ax.set_yticklabels(class_names)
-
         for i in range(cm.shape[0]):
             for j in range(cm.shape[1]):
-                ax.text(
-                    j,
-                    i,
-                    int(cm[i, j]),
-                    ha="center",
-                    va="center",
-                )
-
+                ax.text(j, i, int(cm[i, j]), ha="center", va="center")
         fig.colorbar(im, ax=ax)
-        st.pyplot(fig, clear_figure=True)
-        plt.close(fig)
+        _show(fig)
 
-        # ===== save trained objects =====
+        # save
         st.session_state.models = models
         st.session_state.class_names = class_names
-        st.session_state.fit_pack = {
-            "maxdim": int(maxdim),
-            "pim_h1": pim_h1,
-            "pim_h2": pim_h2,
-            "grid_len": int(grid_len),
-            "topk": int(topk),
-            "k_levels": int(k_levels),
-            "use_proto": bool(use_proto),
-            "protos_h1": protos_h1,
-            "protos_h2": protos_h2,
-            "n_classes": int(n_classes),
-            "use_density": bool(use_density),
-            "dens_k": int(dens_k),
-            "dens_len": int(dens_len),
-            "use_mapper": bool(use_mapper),
-            "mapper_params": (
-                int(mapper_intervals),
-                float(mapper_overlap),
-                float(mapper_db_eps),
-                int(mapper_min_s),
-            ),
-            "total_len": int(total_len),
-        }
-
-        # ===== save training summary =====
+        st.session_state.fit_pack = {"total_len": int(total_len)}
         st.session_state.last_train = {
             "acc": float(acc),
+            "macro_acc": float(macro_acc),
             "n": int(len(y)),
             "d": int(X.shape[1]),
             "seconds": float(time.time() - t0),
+            "classes": int(len(class_names)),
         }
 
-        # ===== download summary =====
+        # download summary
         summary_text = "\n".join([
             f"acc: {st.session_state.last_train['acc']}",
+            f"macro_acc: {st.session_state.last_train['macro_acc']}",
             f"n: {st.session_state.last_train['n']}",
             f"d: {st.session_state.last_train['d']}",
             f"seconds: {st.session_state.last_train['seconds']}",
-            f"classes: {len(class_names)}",
+            f"classes: {st.session_state.last_train['classes']}",
         ])
 
         st.download_button(
@@ -520,7 +433,33 @@ st.write({
         st.success("Training complete. Model is ready in Predict tab.")
 
 
+# ============================================================
+# Predict
+# ============================================================
+with tabs[6]:
+    mode = st.radio("input", ["generate", "upload"], horizontal=True)
+    pts = None
 
+    if mode == "generate":
+        pick = st.selectbox("shape_pred", list(SHAPES_2D.keys()) + list(SHAPES_3D.keys()))
+        sd = st.number_input("seed_pred", value=999, step=1)
+        pts = sample_points(pick, int(sd), n_points, noise_2d, noise_3d, seed)
+    else:
+        up = st.file_uploader("csv", type=["csv"])
+        if up is not None:
+            data = np.loadtxt(up, delimiter=",")
+            if data.ndim == 1:
+                data = data.reshape(-1, data.shape[0])
+            if data.shape[1] in (2, 3):
+                pts = data.astype(np.float32)
 
+    if pts is not None:
+        _show(plot_points(pts, f"dim={pts.shape[1]}"))
+        dg = dgms_only(pts, maxdim=int(maxdim))
+        _show(plot_diagram(dg[0], "H0"))
+        _show(plot_diagram(dg[1], "H1"))
+        if int(maxdim) >= 2:
+            _show(plot_diagram(dg[2], "H2"))
 
-
+        if st.session_state.models is not None and st.session_state.class_names is not None:
+            st.write({"model_ready": True, "classes": len(st.session_state.class_names)})
