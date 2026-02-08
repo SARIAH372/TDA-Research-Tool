@@ -459,7 +459,14 @@ with tabs[5]:
 
             Xfeat.append(feat)
 
+
+
+       
+
         X = np.vstack(Xfeat).astype(np.float32)
+        X = np.nan_to_num(X, nan=0.0, posinf=0.0, neginf=0.0)
+       
+
 
         Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.25, random_state=int(seed), stratify=y)
         models = fit_ensemble(model_kind, Xtr, ytr, n_models=int(ens), seed=int(seed))
@@ -593,5 +600,6 @@ with tabs[6]:
             st.write({"pred": class_names[pred_idx], "conf": conf})
             for k, name in enumerate(class_names):
                 st.write(f"{name}: {p_mean[k]:.3f} ± {p_std[k]:.3f}")
+
 
 
