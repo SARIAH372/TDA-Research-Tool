@@ -384,7 +384,8 @@ with tabs[5]:
         p_mean, _ = ensemble_predict(models, Xte)
         pred = np.argmax(p_mean, axis=1)
         acc = accuracy_score(yte, pred)
-        # ----- per-class accuracy -----
+        # ===== per-class accuracy =====
+
 per_class_acc = []
 for c in range(len(class_names)):
     mask = (yte == c)
@@ -395,13 +396,12 @@ for c in range(len(class_names)):
 
 macro_acc = float(np.nanmean(per_class_acc))
 
-# ----- overall + macro accuracy -----
 st.write({
     "acc": float(acc),
     "macro_acc": macro_acc,
 })
 
-# ----- per-class accuracy table -----
+# ===== per-class accuracy table =====
 rows = []
 for i, name in enumerate(class_names):
     rows.append({
@@ -411,7 +411,30 @@ for i, name in enumerate(class_names):
 
 st.dataframe(rows, use_container_width=True)
 
-# ----- save trained objects -----
+# ===== confusion matrix =====
+cm = confusion_matrix(yte, pred, labels=np.arange(len(class_names)))
+
+fig, ax = plt.subplots()
+im = ax.imshow(cm)
+
+ax.set_title("Confusion Matrix")
+ax.set_xlabel("Predicted")
+ax.set_ylabel("True")
+
+ax.set_xticks(np.arange(len(class_names)))
+ax.set_yticks(np.arange(len(class_names)))
+ax.set_xticklabels(class_names, rotation=45, ha="right")
+ax.set_yticklabels(class_names)
+
+for i in range(cm.shape[0]):
+    for j in range(cm.shape[1]):
+        ax.text(j, i, int(cm[i, j]), ha="center", va="center")
+
+fig.colorbar(im, ax=ax)
+st.pyplot(fig, clear_figure=True)
+plt.close(fig)
+
+# ===== save trained objects =====
 st.session_state.models = models
 st.session_state.class_names = class_names
 st.session_state.fit_pack = {
@@ -438,7 +461,7 @@ st.session_state.fit_pack = {
     "total_len": int(total_len),
 }
 
-# ----- save training summary -----
+# ===== save training summary =====
 st.session_state.last_train = {
     "acc": float(acc),
     "n": int(len(y)),
@@ -446,7 +469,7 @@ st.session_state.last_train = {
     "seconds": float(time.time() - t0),
 }
 
-# ----- download summary -----
+# ===== download summary =====
 summary_text = "\n".join([
     f"acc: {st.session_state.last_train['acc']}",
     f"n: {st.session_state.last_train['n']}",
@@ -463,4 +486,7 @@ st.download_button(
 )
 
 st.success("Training complete. Model is ready in Predict tab.")
+
+
+
 
