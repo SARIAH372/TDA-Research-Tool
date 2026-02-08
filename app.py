@@ -30,6 +30,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.neural_network import MLPClassifier
 from sklearn.metrics import accuracy_score, confusion_matrix
 from sklearn.utils import resample
+from sklearn.base import BaseEstimator, TransformerMixin
 
 from topo import (
     SHAPES_2D, SHAPES_3D, make_dataset_mixed,
@@ -115,20 +116,36 @@ def plot_diagram(dgm, title):
     ax.set_ylabel("death")
     ax.set_title(title)
     return fig
+class NanInfCleaner(BaseEstimator, TransformerMixin):
+    def __init__(self, fill_value=0.0, clip=1e6):
+        self.fill_value = float(fill_value)
+        self.clip = float(clip)
+
+    def fit(self, X, y=None):
+        return self
+
+    def transform(self, X):
+        X = np.asarray(X, dtype=np.float32)
+        X = np.nan_to_num(X, nan=self.fill_value, posinf=self.clip, neginf=-self.clip)
+        # optional: clip extreme values for stability
+        X = np.clip(X, -self.clip, self.clip)
+        return X
 
 
 def make_model(kind, seed):
     if kind == "LogReg":
         return Pipeline([
+            ("clean", NanInfCleaner(fill_value=0.0, clip=1e6)),
             ("scaler", StandardScaler()),
             ("clf", LogisticRegression(
                 C=1.0,
                 max_iter=1000,
-                solver="lbfgs",   # works in ALL sklearn versions
+                solver="lbfgs",
                 random_state=int(seed)
             ))
         ])
     return Pipeline([
+        ("clean", NanInfCleaner(fill_value=0.0, clip=1e6)),
         ("scaler", StandardScaler()),
         ("clf", MLPClassifier(
             hidden_layer_sizes=(128, 64),
@@ -136,6 +153,7 @@ def make_model(kind, seed):
             random_state=int(seed)
         ))
     ])
+
 
 
 
@@ -575,4 +593,5 @@ with tabs[6]:
             st.write({"pred": class_names[pred_idx], "conf": conf})
             for k, name in enumerate(class_names):
                 st.write(f"{name}: {p_mean[k]:.3f} ± {p_std[k]:.3f}")
+
 
