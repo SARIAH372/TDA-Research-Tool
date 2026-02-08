@@ -2,7 +2,11 @@
 
     
             
-# app.py
+
+    
+    
+       
+        # app.py
 import time
 import streamlit as st
 import numpy as np
@@ -35,16 +39,17 @@ plt.close("all")
 # -----------------------
 # session state
 # -----------------------
-if "models" not in st.session_state:
-    st.session_state.models = None
-if "class_names" not in st.session_state:
-    st.session_state.class_names = None
-if "fit_pack" not in st.session_state:
-    st.session_state.fit_pack = None
-if "last_train" not in st.session_state:
-    st.session_state.last_train = None
-if "stop_requested" not in st.session_state:
-    st.session_state.stop_requested = False
+for k, v in {
+    "models": None,
+    "class_names": None,
+    "fit_pack": None,
+    "last_train": None,
+    "train_rows": None,
+    "train_cm": None,
+    "stop_requested": False,
+}.items():
+    if k not in st.session_state:
+        st.session_state[k] = v
 
 
 def _maybe_stop():
@@ -101,9 +106,7 @@ def plot_diagram(dgm, title):
 
 def make_model(kind, seed):
     if kind == "HGB":
-        return Pipeline([
-            ("clf", HistGradientBoostingClassifier(random_state=int(seed)))
-        ])
+        return Pipeline([("clf", HistGradientBoostingClassifier(random_state=int(seed)))])
     return Pipeline([
         ("scaler", StandardScaler()),
         ("clf", MLPClassifier(hidden_layer_sizes=(128, 64), max_iter=700, random_state=int(seed)))
@@ -261,7 +264,7 @@ with tabs[4]:
 
 
 # ============================================================
-# Train (with Option A polish + download)
+# Train (shows results after rerun)
 # ============================================================
 with tabs[5]:
     col1, col2, col3 = st.columns([1, 1, 1])
@@ -277,6 +280,8 @@ with tabs[5]:
         st.session_state.class_names = None
         st.session_state.fit_pack = None
         st.session_state.last_train = None
+        st.session_state.train_rows = None
+        st.session_state.train_cm = None
         st.session_state.stop_requested = False
         st.success("Reset done.")
 
@@ -318,7 +323,9 @@ with tabs[5]:
         )
 
         mapper_dim = 18
-        dens_len = int(density_filtration_summaries(pcs[0], fracs=(0.5, 0.8, 1.0), k=int(dens_k), maxdim=int(maxdim)).shape[0])
+        dens_len = int(density_filtration_summaries(
+            pcs[0], fracs=(0.5, 0.8, 1.0), k=int(dens_k), maxdim=int(maxdim)
+        ).shape[0])
         pi_len = len(tuple(pi_channels)) * 32 * 32
         tda_len = int(tda_feature_block(dgms[0], grid_len=int(grid_len), topk=int(topk), k_levels=int(k_levels)).shape[0])
         total_len = (pi_len * 2) + tda_len + (n_classes * 2) + dens_len + mapper_dim
@@ -329,12 +336,9 @@ with tabs[5]:
 
             pi1 = diagram_to_pis(pim_h1, dg[1])
             pi2 = diagram_to_pis(pim_h2, dg[2]) if int(maxdim) >= 2 else np.zeros_like(pi1)
-
             hard = tda_feature_block(dg, grid_len=int(grid_len), topk=int(topk), k_levels=int(k_levels))
-
             d1 = distances_to_prototypes(dg[1], protos_h1, seed=int(seed) + 100)
             d2 = distances_to_prototypes(dg[2], protos_h2, seed=int(seed) + 200) if int(maxdim) >= 2 else np.zeros_like(d1)
-
             dens = density_filtration_summaries(p, fracs=(0.5, 0.8, 1.0), k=int(dens_k), maxdim=int(maxdim))
             if dens.shape[0] != dens_len:
                 tmp = np.zeros((dens_len,), dtype=np.float32)
@@ -368,7 +372,7 @@ with tabs[5]:
         pred = np.argmax(p_mean, axis=1)
         acc = accuracy_score(yte, pred)
 
-        # per-class + macro acc
+        # per-class acc + macro
         per_class_acc = []
         for c in range(len(class_names)):
             mask = (yte == c)
@@ -378,32 +382,16 @@ with tabs[5]:
                 per_class_acc.append(float((pred[mask] == c).mean()))
         macro_acc = float(np.nanmean(per_class_acc))
 
-        st.write({"acc": float(acc), "macro_acc": macro_acc})
-
         rows = [{"class": class_names[i], "accuracy": per_class_acc[i]} for i in range(len(class_names))]
-        st.dataframe(rows, use_container_width=True)
 
-        # labeled confusion matrix
         cm = confusion_matrix(yte, pred, labels=np.arange(len(class_names)))
-        fig, ax = plt.subplots()
-        im = ax.imshow(cm)
-        ax.set_title("Confusion Matrix")
-        ax.set_xlabel("Predicted")
-        ax.set_ylabel("True")
-        ax.set_xticks(np.arange(len(class_names)))
-        ax.set_yticks(np.arange(len(class_names)))
-        ax.set_xticklabels(class_names, rotation=45, ha="right")
-        ax.set_yticklabels(class_names)
-        for i in range(cm.shape[0]):
-            for j in range(cm.shape[1]):
-                ax.text(j, i, int(cm[i, j]), ha="center", va="center")
-        fig.colorbar(im, ax=ax)
-        _show(fig)
 
-        # save
         st.session_state.models = models
         st.session_state.class_names = class_names
-        st.session_state.fit_pack = {"total_len": int(total_len)}
+        st.session_state.fit_pack = {
+            "total_len": int(total_len),
+            "classes": class_names,
+        }
         st.session_state.last_train = {
             "acc": float(acc),
             "macro_acc": float(macro_acc),
@@ -412,6 +400,8 @@ with tabs[5]:
             "seconds": float(time.time() - t0),
             "classes": int(len(class_names)),
         }
+        st.session_state.train_rows = rows
+        st.session_state.train_cm = cm
 
         # download summary
         summary_text = "\n".join([
@@ -423,14 +413,42 @@ with tabs[5]:
             f"classes: {st.session_state.last_train['classes']}",
         ])
 
-        st.download_button(
-            "Download training summary",
-            data=summary_text,
-            file_name="training_summary.txt",
-            mime="text/plain",
-        )
+        st.session_state.summary_text = summary_text
+        st.success("Training complete. Results saved below.")
 
-        st.success("Training complete. Model is ready in Predict tab.")
+    # ---------- ALWAYS SHOW LAST RESULTS ----------
+    if st.session_state.last_train is not None:
+        st.write(st.session_state.last_train)
+
+        if st.session_state.train_rows is not None:
+            st.dataframe(st.session_state.train_rows, use_container_width=True)
+
+        if st.session_state.train_cm is not None and st.session_state.class_names is not None:
+            cm = st.session_state.train_cm
+            cn = st.session_state.class_names
+
+            fig, ax = plt.subplots()
+            im = ax.imshow(cm)
+            ax.set_title("Confusion Matrix")
+            ax.set_xlabel("Predicted")
+            ax.set_ylabel("True")
+            ax.set_xticks(np.arange(len(cn)))
+            ax.set_yticks(np.arange(len(cn)))
+            ax.set_xticklabels(cn, rotation=45, ha="right")
+            ax.set_yticklabels(cn)
+            for i in range(cm.shape[0]):
+                for j in range(cm.shape[1]):
+                    ax.text(j, i, int(cm[i, j]), ha="center", va="center")
+            fig.colorbar(im, ax=ax)
+            _show(fig)
+
+        if "summary_text" in st.session_state and st.session_state.summary_text is not None:
+            st.download_button(
+                "Download training summary",
+                data=st.session_state.summary_text,
+                file_name="training_summary.txt",
+                mime="text/plain",
+            )
 
 
 # ============================================================
@@ -463,3 +481,9 @@ with tabs[6]:
 
         if st.session_state.models is not None and st.session_state.class_names is not None:
             st.write({"model_ready": True, "classes": len(st.session_state.class_names)})
+
+
+   
+         
+            
+
