@@ -395,10 +395,13 @@ for c in range(len(class_names)):
 
 macro_acc = float(np.nanmean(per_class_acc))
 
+# ----- overall + macro accuracy -----
 st.write({
     "acc": float(acc),
     "macro_acc": macro_acc,
 })
+
+# ----- per-class accuracy table -----
 rows = []
 for i, name in enumerate(class_names):
     rows.append({
@@ -408,36 +411,43 @@ for i, name in enumerate(class_names):
 
 st.dataframe(rows, use_container_width=True)
 
+# ----- save trained objects -----
+st.session_state.models = models
+st.session_state.class_names = class_names
+st.session_state.fit_pack = {
+    "maxdim": int(maxdim),
+    "pim_h1": pim_h1,
+    "pim_h2": pim_h2,
+    "grid_len": int(grid_len),
+    "topk": int(topk),
+    "k_levels": int(k_levels),
+    "use_proto": bool(use_proto),
+    "protos_h1": protos_h1,
+    "protos_h2": protos_h2,
+    "n_classes": int(n_classes),
+    "use_density": bool(use_density),
+    "dens_k": int(dens_k),
+    "dens_len": int(dens_len),
+    "use_mapper": bool(use_mapper),
+    "mapper_params": (
+        int(mapper_intervals),
+        float(mapper_overlap),
+        float(mapper_db_eps),
+        int(mapper_min_s),
+    ),
+    "total_len": int(total_len),
+}
 
+# ----- save training summary -----
+st.session_state.last_train = {
+    "acc": float(acc),
+    "n": int(len(y)),
+    "d": int(X.shape[1]),
+    "seconds": float(time.time() - t0),
+}
 
-        st.session_state.models = models
-        st.session_state.class_names = class_names
-        st.session_state.fit_pack = {
-            "maxdim": int(maxdim),
-            "pim_h1": pim_h1,
-            "pim_h2": pim_h2,
-            "grid_len": int(grid_len),
-            "topk": int(topk),
-            "k_levels": int(k_levels),
-            "use_proto": bool(use_proto),
-            "protos_h1": protos_h1,
-            "protos_h2": protos_h2,
-            "n_classes": int(n_classes),
-            "use_density": bool(use_density),
-            "dens_k": int(dens_k),
-            "dens_len": int(dens_len),
-            "use_mapper": bool(use_mapper),
-            "mapper_params": (int(mapper_intervals), float(mapper_overlap), float(mapper_db_eps), int(mapper_min_s)),
-            "total_len": int(total_len),
-        }
-
-        st.session_state.last_train = {
-            "acc": float(acc),
-            "n": int(len(y)),
-            "d": int(X.shape[1]),
-            "seconds": float(time.time() - t0),
-        }
-        summary_text = "\n".join([
+# ----- download summary -----
+summary_text = "\n".join([
     f"acc: {st.session_state.last_train['acc']}",
     f"n: {st.session_state.last_train['n']}",
     f"d: {st.session_state.last_train['d']}",
@@ -452,120 +462,5 @@ st.download_button(
     mime="text/plain",
 )
 
-
-
-
-
-        cm = confusion_matrix(yte, pred, labels=np.arange(len(class_names)))
-
-fig, ax = plt.subplots()
-im = ax.imshow(cm)
-
-ax.set_title("Confusion Matrix")
-ax.set_xlabel("Predicted")
-ax.set_ylabel("True")
-
-ax.set_xticks(np.arange(len(class_names)))
-ax.set_yticks(np.arange(len(class_names)))
-ax.set_xticklabels(class_names, rotation=45, ha="right")
-ax.set_yticklabels(class_names)
-
-for i in range(cm.shape[0]):
-    for j in range(cm.shape[1]):
-        ax.text(j, i, int(cm[i, j]), ha="center", va="center")
-
-fig.colorbar(im, ax=ax)
-st.pyplot(fig, clear_figure=True)
-plt.close(fig)
-
-
-# ============================================================
-# Predict tab
-# ============================================================
-with tabs[6]:
-    mode = st.radio("input", ["generate", "upload"], horizontal=True)
-    pts = None
-    if mode == "generate":
-        pick = st.selectbox("shape_pred", list(SHAPES_2D.keys()) + list(SHAPES_3D.keys()))
-        sd = st.number_input("seed_pred", value=999, step=1)
-        pts = sample_points(pick, int(sd))
-    else:
-        up = st.file_uploader("csv", type=["csv"])
-        if up is not None:
-            data = np.loadtxt(up, delimiter=",")
-            if data.ndim == 1:
-                data = data.reshape(-1, data.shape[0])
-            if data.shape[1] in (2, 3):
-                pts = data.astype(np.float32)
-
-    if pts is not None:
-        _show(plot_points(pts, f"dim={pts.shape[1]}"))
-        dg = dgms_only(pts, maxdim=int(maxdim))
-        _show(plot_diagram(dg[0], "H0"))
-        _show(plot_diagram(dg[1], "H1"))
-        if int(maxdim) >= 2:
-            _show(plot_diagram(dg[2], "H2"))
-
-        if st.session_state.models is not None and st.session_state.fit_pack is not None:
-            fp = st.session_state.fit_pack
-            pi1 = diagram_to_pis(fp["pim_h1"], dg[1])
-            pi2 = diagram_to_pis(fp["pim_h2"], dg[2]) if fp["maxdim"] >= 2 else np.zeros_like(pi1)
-            hard = tda_feature_block(dg, grid_len=fp["grid_len"], topk=fp["topk"], k_levels=fp["k_levels"])
-
-            if fp["use_proto"]:
-                d1 = distances_to_prototypes(dg[1], fp["protos_h1"], seed=123)
-                d2 = distances_to_prototypes(dg[2], fp["protos_h2"], seed=456) if fp["maxdim"] >= 2 else np.zeros_like(d1)
-            else:
-                d1 = np.zeros((fp["n_classes"],), dtype=np.float32)
-                d2 = np.zeros((fp["n_classes"],), dtype=np.float32)
-
-            dens = density_filtration_summaries(pts, fracs=(0.5, 0.8, 1.0), k=fp["dens_k"], maxdim=fp["maxdim"]) if fp["use_density"] else np.zeros((fp["dens_len"],), dtype=np.float32)
-            if dens.shape[0] != fp["dens_len"]:
-                tmp = np.zeros((fp["dens_len"],), dtype=np.float32)
-                tmp[:min(fp["dens_len"], dens.shape[0])] = dens[:min(fp["dens_len"], dens.shape[0])]
-                dens = tmp
-
-            mapper_dim = 18
-            mapper_feat = np.zeros((mapper_dim,), dtype=np.float32)
-            if fp["use_mapper"]:
-                (mi, mo, meps, mmin) = fp["mapper_params"]
-                lens = lens_pca(pts, n_components=1)[:, 0]
-                G = mapper_graph(pts, lens=lens, n_intervals=mi, overlap=mo, dbscan_eps=meps, min_samples=mmin)
-                mapper_feat = mapper_spectral_features(G, k_eigs=12)
-
-            feat = np.concatenate([pi1, pi2, hard, d1, d2, dens, mapper_feat], axis=0).astype(np.float32)
-            if feat.shape[0] != fp["total_len"]:
-                tmp = np.zeros((fp["total_len"],), dtype=np.float32)
-                tmp[:min(fp["total_len"], feat.shape[0])] = feat[:min(fp["total_len"], feat.shape[0])]
-                feat = tmp
-
-            feat = np.nan_to_num(feat, nan=0.0, posinf=0.0, neginf=0.0)
-
-            models = st.session_state.models
-            class_names = st.session_state.class_names
-            probs = np.stack([m.predict_proba(feat.reshape(1, -1))[0] for m in models], axis=0)
-            p_mean = probs.mean(axis=0)
-            p_std = probs.std(axis=0)
-
-            pred_idx = int(np.argmax(p_mean))
-            conf = float(np.max(p_mean))
-            st.write({"pred": class_names[pred_idx], "conf": conf})
-            for k, name in enumerate(class_names):
-                st.write(f"{name}: {p_mean[k]:.3f} ± {p_std[k]:.3f}")
-            
-                
-            
-
-            
-          
-               
-        
-   
-       
-        
-
-    
-        
-                
-
+st.success("Training complete. Model is ready in Predict tab.")
 
