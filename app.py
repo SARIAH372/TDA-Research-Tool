@@ -376,37 +376,52 @@ with tabs[5]:
         X = np.vstack(Xfeat).astype(np.float32)
         X = np.nan_to_num(X, nan=0.0, posinf=0.0, neginf=0.0)
 
-        Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.25, random_state=int(seed), stratify=y)
-        Xtr = np.nan_to_num(Xtr, nan=0.0, posinf=0.0, neginf=0.0)
-        Xte = np.nan_to_num(Xte, nan=0.0, posinf=0.0, neginf=0.0)
+        # ----- train / test split -----
+Xtr, Xte, ytr, yte = train_test_split(
+    X,
+    y,
+    test_size=0.25,
+    random_state=int(seed),
+    stratify=y,
+)
 
-                models = fit_ensemble(
-            model_kind,
-            Xtr,
-            ytr,
-            n_models=int(ens),
-            seed=int(seed),
-        )
+# hard safety against NaNs (never hurts)
+Xtr = np.nan_to_num(Xtr, nan=0.0, posinf=0.0, neginf=0.0)
+Xte = np.nan_to_num(Xte, nan=0.0, posinf=0.0, neginf=0.0)
 
-        p_mean, _ = ensemble_predict(models, Xte)
-        pred = np.argmax(p_mean, axis=1)
-        acc = accuracy_score(yte, pred)
+# ----- fit ensemble -----
+models = fit_ensemble(
+    model_kind,
+    Xtr,
+    ytr,
+    n_models=int(ens),
+    seed=int(seed),
+)
 
-        # ===== per-class accuracy =====
-        per_class_acc = []
-        for c in range(len(class_names)):
-            mask = (yte == c)
-            if mask.sum() == 0:
-                per_class_acc.append(np.nan)
-            else:
-                per_class_acc.append(float((pred[mask] == c).mean()))
+# ----- evaluate -----
+p_mean, _ = ensemble_predict(models, Xte)
+pred = np.argmax(p_mean, axis=1)
+acc = accuracy_score(yte, pred)
 
-        macro_acc = float(np.nanmean(per_class_acc))
+# ----- per-class accuracy -----
+per_class_acc = []
+for c in range(len(class_names)):
+    mask = (yte == c)
+    if mask.sum() == 0:
+        per_class_acc.append(np.nan)
+    else:
+        per_class_acc.append(float((pred[mask] == c).mean()))
 
-        st.write({
-            "acc": float(acc),
-            "macro_acc": macro_acc,
-        })
+macro_acc = float(np.nanmean(per_class_acc))
+
+st.write({
+    "acc": float(acc),
+    "macro_acc": macro_acc,
+})
+
+
+
+                
 
         # ===== per-class accuracy table =====
         rows = []
@@ -503,6 +518,7 @@ with tabs[5]:
         )
 
         st.success("Training complete. Model is ready in Predict tab.")
+
 
 
 
