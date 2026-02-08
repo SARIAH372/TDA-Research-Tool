@@ -7,6 +7,7 @@ import time
 import streamlit as st
 import numpy as np
 import matplotlib.pyplot as plt
+from sklearn.ensemble import HistGradientBoostingClassifier
 
 from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
@@ -97,14 +98,29 @@ def plot_diagram(dgm, title):
 
 
 def make_model(kind, seed):
+    if kind == "HGB":
+        return Pipeline([
+            ("clf", HistGradientBoostingClassifier(
+                random_state=int(seed)
+            ))
+        ])
     if kind == "LogReg":
         return Pipeline([
             ("scaler", StandardScaler()),
-            ("clf", LogisticRegression(C=1.0, max_iter=1000, solver="lbfgs", random_state=int(seed)))
+            ("clf", LogisticRegression(
+                C=1.0,
+                max_iter=1000,
+                solver="lbfgs",
+                random_state=int(seed)
+            ))
         ])
     return Pipeline([
         ("scaler", StandardScaler()),
-        ("clf", MLPClassifier(hidden_layer_sizes=(128, 64), max_iter=700, random_state=int(seed)))
+        ("clf", MLPClassifier(
+            hidden_layer_sizes=(128, 64),
+            max_iter=700,
+            random_state=int(seed)
+        ))
     ])
 
 
@@ -172,7 +188,8 @@ with st.sidebar:
     mapper_min_s = st.slider("mapper_min_samples", 2, 25, 5, step=1)
 
     st.header("Model")
-    model_kind = st.selectbox("model_kind", ["LogReg", "MLP"], index=0)
+    model_kind = st.selectbox("model_kind", ["HGB", "LogReg", "MLP"], index=0)
+
     ens = st.select_slider("ensemble", options=[3, 5, 7], value=5)
 
 
@@ -493,3 +510,4 @@ with tabs[6]:
     
         
                 
+
