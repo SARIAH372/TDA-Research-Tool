@@ -380,112 +380,130 @@ with tabs[5]:
         Xtr = np.nan_to_num(Xtr, nan=0.0, posinf=0.0, neginf=0.0)
         Xte = np.nan_to_num(Xte, nan=0.0, posinf=0.0, neginf=0.0)
 
-        models = fit_ensemble(model_kind, Xtr, ytr, n_models=int(ens), seed=int(seed))
+                models = fit_ensemble(
+            model_kind,
+            Xtr,
+            ytr,
+            n_models=int(ens),
+            seed=int(seed),
+        )
+
         p_mean, _ = ensemble_predict(models, Xte)
         pred = np.argmax(p_mean, axis=1)
         acc = accuracy_score(yte, pred)
+
         # ===== per-class accuracy =====
+        per_class_acc = []
+        for c in range(len(class_names)):
+            mask = (yte == c)
+            if mask.sum() == 0:
+                per_class_acc.append(np.nan)
+            else:
+                per_class_acc.append(float((pred[mask] == c).mean()))
 
-per_class_acc = []
-for c in range(len(class_names)):
-    mask = (yte == c)
-    if mask.sum() == 0:
-        per_class_acc.append(np.nan)
-    else:
-        per_class_acc.append(float((pred[mask] == c).mean()))
+        macro_acc = float(np.nanmean(per_class_acc))
 
-macro_acc = float(np.nanmean(per_class_acc))
+        st.write({
+            "acc": float(acc),
+            "macro_acc": macro_acc,
+        })
 
-st.write({
-    "acc": float(acc),
-    "macro_acc": macro_acc,
-})
+        # ===== per-class accuracy table =====
+        rows = []
+        for i, name in enumerate(class_names):
+            rows.append({
+                "class": name,
+                "accuracy": per_class_acc[i],
+            })
 
-# ===== per-class accuracy table =====
-rows = []
-for i, name in enumerate(class_names):
-    rows.append({
-        "class": name,
-        "accuracy": per_class_acc[i]
-    })
+        st.dataframe(rows, use_container_width=True)
 
-st.dataframe(rows, use_container_width=True)
+        # ===== confusion matrix =====
+        cm = confusion_matrix(
+            yte,
+            pred,
+            labels=np.arange(len(class_names)),
+        )
 
-# ===== confusion matrix =====
-cm = confusion_matrix(yte, pred, labels=np.arange(len(class_names)))
+        fig, ax = plt.subplots()
+        im = ax.imshow(cm)
 
-fig, ax = plt.subplots()
-im = ax.imshow(cm)
+        ax.set_title("Confusion Matrix")
+        ax.set_xlabel("Predicted")
+        ax.set_ylabel("True")
 
-ax.set_title("Confusion Matrix")
-ax.set_xlabel("Predicted")
-ax.set_ylabel("True")
+        ax.set_xticks(np.arange(len(class_names)))
+        ax.set_yticks(np.arange(len(class_names)))
+        ax.set_xticklabels(class_names, rotation=45, ha="right")
+        ax.set_yticklabels(class_names)
 
-ax.set_xticks(np.arange(len(class_names)))
-ax.set_yticks(np.arange(len(class_names)))
-ax.set_xticklabels(class_names, rotation=45, ha="right")
-ax.set_yticklabels(class_names)
+        for i in range(cm.shape[0]):
+            for j in range(cm.shape[1]):
+                ax.text(
+                    j,
+                    i,
+                    int(cm[i, j]),
+                    ha="center",
+                    va="center",
+                )
 
-for i in range(cm.shape[0]):
-    for j in range(cm.shape[1]):
-        ax.text(j, i, int(cm[i, j]), ha="center", va="center")
+        fig.colorbar(im, ax=ax)
+        st.pyplot(fig, clear_figure=True)
+        plt.close(fig)
 
-fig.colorbar(im, ax=ax)
-st.pyplot(fig, clear_figure=True)
-plt.close(fig)
+        # ===== save trained objects =====
+        st.session_state.models = models
+        st.session_state.class_names = class_names
+        st.session_state.fit_pack = {
+            "maxdim": int(maxdim),
+            "pim_h1": pim_h1,
+            "pim_h2": pim_h2,
+            "grid_len": int(grid_len),
+            "topk": int(topk),
+            "k_levels": int(k_levels),
+            "use_proto": bool(use_proto),
+            "protos_h1": protos_h1,
+            "protos_h2": protos_h2,
+            "n_classes": int(n_classes),
+            "use_density": bool(use_density),
+            "dens_k": int(dens_k),
+            "dens_len": int(dens_len),
+            "use_mapper": bool(use_mapper),
+            "mapper_params": (
+                int(mapper_intervals),
+                float(mapper_overlap),
+                float(mapper_db_eps),
+                int(mapper_min_s),
+            ),
+            "total_len": int(total_len),
+        }
 
-# ===== save trained objects =====
-st.session_state.models = models
-st.session_state.class_names = class_names
-st.session_state.fit_pack = {
-    "maxdim": int(maxdim),
-    "pim_h1": pim_h1,
-    "pim_h2": pim_h2,
-    "grid_len": int(grid_len),
-    "topk": int(topk),
-    "k_levels": int(k_levels),
-    "use_proto": bool(use_proto),
-    "protos_h1": protos_h1,
-    "protos_h2": protos_h2,
-    "n_classes": int(n_classes),
-    "use_density": bool(use_density),
-    "dens_k": int(dens_k),
-    "dens_len": int(dens_len),
-    "use_mapper": bool(use_mapper),
-    "mapper_params": (
-        int(mapper_intervals),
-        float(mapper_overlap),
-        float(mapper_db_eps),
-        int(mapper_min_s),
-    ),
-    "total_len": int(total_len),
-}
+        # ===== save training summary =====
+        st.session_state.last_train = {
+            "acc": float(acc),
+            "n": int(len(y)),
+            "d": int(X.shape[1]),
+            "seconds": float(time.time() - t0),
+        }
 
-# ===== save training summary =====
-st.session_state.last_train = {
-    "acc": float(acc),
-    "n": int(len(y)),
-    "d": int(X.shape[1]),
-    "seconds": float(time.time() - t0),
-}
+        # ===== download summary =====
+        summary_text = "\n".join([
+            f"acc: {st.session_state.last_train['acc']}",
+            f"n: {st.session_state.last_train['n']}",
+            f"d: {st.session_state.last_train['d']}",
+            f"seconds: {st.session_state.last_train['seconds']}",
+            f"classes: {len(class_names)}",
+        ])
 
-# ===== download summary =====
-summary_text = "\n".join([
-    f"acc: {st.session_state.last_train['acc']}",
-    f"n: {st.session_state.last_train['n']}",
-    f"d: {st.session_state.last_train['d']}",
-    f"seconds: {st.session_state.last_train['seconds']}",
-    f"classes: {len(class_names)}",
-])
+        st.download_button(
+            "Download training summary",
+            data=summary_text,
+            file_name="training_summary.txt",
+            mime="text/plain",
+        )
 
-st.download_button(
-    "Download training summary",
-    data=summary_text,
-    file_name="training_summary.txt",
-    mime="text/plain",
-)
+        st.success("Training complete. Model is ready in Predict tab.")
 
-st.success("Training complete. Model is ready in Predict tab.")
 
 
 
