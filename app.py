@@ -470,6 +470,11 @@ with tabs[5]:
 
 
         Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.25, random_state=int(seed), stratify=y)
+        Xtr = np.nan_to_num(Xtr, nan=0.0, posinf=0.0, neginf=0.0)
+        Xte = np.nan_to_num(Xte, nan=0.0, posinf=0.0, neginf=0.0)
+    
+
+
         models = fit_ensemble(model_kind, Xtr, ytr, n_models=int(ens), seed=int(seed))
         p_mean, _ = ensemble_predict(models, Xte)
         pred = np.argmax(p_mean, axis=1)
@@ -603,6 +608,7 @@ with tabs[6]:
             st.write({"pred": class_names[pred_idx], "conf": conf})
             for k, name in enumerate(class_names):
                 st.write(f"{name}: {p_mean[k]:.3f} ± {p_std[k]:.3f}")
+
 
 
 
