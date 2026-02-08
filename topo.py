@@ -3,7 +3,10 @@
 
   
     
-       # topo.py
+       
+  
+   
+    # topo.py
 import numpy as np
 from ripser import ripser
 from sklearn.decomposition import PCA
@@ -78,6 +81,7 @@ def make_torus(n=320, R=1.3, r=0.45, noise=0.02, seed=7):
     p = np.c_[x, y, z] + rng.normal(scale=noise, size=(n, 3))
     return p.astype(np.float32)
 
+
 SHAPES_2D = {
     "2D blob": make_blob_2d,
     "2D circle": make_circle,
@@ -94,7 +98,7 @@ SHAPES_3D = {
 # ============================
 # Mixed dataset
 # ============================
-def make_dataset_mixed(n_samples=400, n_points=140, noise_2d=0.03, noise_3d=0.02, p_3d=0.45, seed=7):
+def make_dataset_mixed(n_samples=250, n_points=140, noise_2d=0.03, noise_3d=0.02, p_3d=0.45, seed=7):
     rng = np.random.default_rng(seed)
     keys2 = list(SHAPES_2D.keys())
     keys3 = list(SHAPES_3D.keys())
@@ -120,7 +124,7 @@ def make_dataset_mixed(n_samples=400, n_points=140, noise_2d=0.03, noise_3d=0.02
 
 
 # ============================
-# Persistent homology (euclidean)
+# Persistent homology
 # ============================
 def dgms_only(points, maxdim=2):
     out = ripser(np.asarray(points, dtype=np.float32), maxdim=int(maxdim))
@@ -128,7 +132,7 @@ def dgms_only(points, maxdim=2):
 
 
 # ============================
-# Geodesic PH (kNN shortest paths)
+# Geodesic PH
 # ============================
 def _knn_adjacency(points, k=10):
     X = np.asarray(points, dtype=np.float32)
@@ -177,7 +181,7 @@ def dgms_geodesic(points, k=10, maxdim=2):
 
 
 # ============================
-# Diagram utilities / features
+# Diagram utilities / robust stats
 # ============================
 def finite_bars(dgm):
     if dgm is None or len(dgm) == 0:
@@ -246,7 +250,7 @@ def landscape_samples(dgm, grid, k_levels=3):
     return Tsort[: int(k_levels), :]
 
 def tda_feature_block(dgms, grid_len=64, topk=8, k_levels=3):
-    grid = np.linspace(0.0, 3.0, int(grid_len), dtype=np.float32)  # fixed
+    grid = np.linspace(0.0, 3.0, int(grid_len), dtype=np.float32)
     blocks = []
     for dim in range(3):
         dgm = dgms[dim] if dim < len(dgms) else np.zeros((0, 2), dtype=np.float32)
@@ -257,7 +261,8 @@ def tda_feature_block(dgms, grid_len=64, topk=8, k_levels=3):
         sil = silhouette_curve(dgm, grid, p=1.0).astype(np.float32)
         land = landscape_samples(dgm, grid, k_levels=int(k_levels)).astype(np.float32).ravel()
         blocks.append(np.concatenate([ent, tp1, tp2, tkl, sil, land], axis=0))
-    return np.concatenate(blocks, axis=0).astype(np.float32)
+    f = np.concatenate(blocks, axis=0).astype(np.float32)
+    return np.nan_to_num(f, nan=0.0, posinf=0.0, neginf=0.0)
 
 
 # ============================
@@ -293,10 +298,12 @@ def diagram_to_pi(pim: PIModel, dgm):
         Z += np.exp(-((B - b) ** 2 + (P - pers) ** 2) / (2.0 * s2)).astype(np.float32)
 
     Z = Z / (float(len(bp)) + 1e-12)
-    return Z.ravel().astype(np.float32)
+    z = Z.ravel().astype(np.float32)
+    return np.nan_to_num(z, nan=0.0, posinf=0.0, neginf=0.0)
 
 def diagram_to_pis(pims, dgm):
-    return np.concatenate([diagram_to_pi(pim, dgm) for pim in pims], axis=0).astype(np.float32)
+    v = np.concatenate([diagram_to_pi(pim, dgm) for pim in pims], axis=0).astype(np.float32)
+    return np.nan_to_num(v, nan=0.0, posinf=0.0, neginf=0.0)
 
 
 # ============================
@@ -335,7 +342,7 @@ def sliced_wasserstein(dgm_a, dgm_b, n_dirs=25, seed=0):
         ds.append(_sw_1d(a1, b1))
     return float(np.mean(ds))
 
-def prototype_diagrams(dgms, y, n_classes, dim=1, cap_per_class=20, seed=0, metric="sliced"):
+def prototype_diagrams(dgms, y, n_classes, dim=1, cap_per_class=20, seed=0):
     rng = np.random.default_rng(seed)
     protos = []
     for c in range(int(n_classes)):
@@ -360,11 +367,12 @@ def prototype_diagrams(dgms, y, n_classes, dim=1, cap_per_class=20, seed=0, metr
         protos.append(H[medoid])
     return protos
 
-def distances_to_prototypes(dgm, protos, metric="sliced", seed=0):
+def distances_to_prototypes(dgm, protos, seed=0):
     out = []
     for i, p in enumerate(protos):
         out.append(sliced_wasserstein(dgm, p, n_dirs=25, seed=seed + 777*i))
-    return np.array(out, dtype=np.float32)
+    v = np.array(out, dtype=np.float32)
+    return np.nan_to_num(v, nan=0.0, posinf=0.0, neginf=0.0)
 
 
 # ============================
@@ -392,11 +400,12 @@ def density_filtration_summaries(points, fracs=(0.5, 0.8, 1.0), k=10, maxdim=2):
             out.append(float(total_persistence(dgm, 1)))
             out.append(float(total_persistence(dgm, 2)))
             out.extend(topk_lifetimes(dgm, k=6).tolist())
-    return np.array(out, dtype=np.float32)
+    v = np.array(out, dtype=np.float32)
+    return np.nan_to_num(v, nan=0.0, posinf=0.0, neginf=0.0)
 
 
 # ============================
-# Cohomology (safe: returns theta or None)
+# Cohomology (safe)
 # ============================
 def circular_coordinates(points, coeff=47):
     X = np.asarray(points, dtype=np.float32)
@@ -409,15 +418,19 @@ def circular_coordinates(points, coeff=47):
     mx = int(np.argmax(pers))
     birth = float(bars[mx, 0])
     death = float(bars[mx, 1])
+
     cocycles = out.get("cocycles", None)
     if cocycles is None or len(cocycles) < 2 or len(cocycles[1]) == 0:
         return None, birth, death
+
     try:
         cocycle = np.asarray(cocycles[1][mx], dtype=np.int64)
     except Exception:
         return None, birth, death
+
     if cocycle.ndim != 2 or cocycle.shape[1] != 3:
         return None, birth, death
+
     p = int(coeff)
     cocycle[:, 2] = cocycle[:, 2] % p
 
@@ -438,7 +451,7 @@ def circular_coordinates(points, coeff=47):
 
 
 # ============================
-# Mapper + spectral invariants
+# Mapper + spectral features
 # ============================
 def lens_pca(points, n_components=1):
     X = np.asarray(points, dtype=np.float32)
@@ -520,4 +533,11 @@ def mapper_spectral_features(G, k_eigs=12):
          float(w[1]) if len(w) > 1 else 0.0, float(np.trace(A @ A @ A) / 6.0) if n else 0.0],
         dtype=np.float32,
     )
-    return np.concatenate([out, stats], axis=0).astype(np.float32)
+    v = np.concatenate([out, stats], axis=0).astype(np.float32)
+    return np.nan_to_num(v, nan=0.0, posinf=0.0, neginf=0.0)
+
+
+
+      
+    
+    
