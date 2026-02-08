@@ -582,6 +582,8 @@ with tabs[6]:
                 mapper_feat = mapper_spectral_features(G, k_eigs=12)
 
             feat = np.concatenate([pi1, pi2, hard, d1, d2, dens, mapper_feat], axis=0).astype(np.float32)
+            feat = np.nan_to_num(feat, nan=0.0, posinf=0.0, neginf=0.0)
+
             if feat.shape[0] != fp["total_len"]:
                 tmp = np.zeros((fp["total_len"],), dtype=np.float32)
                 tmp[: min(fp["total_len"], feat.shape[0])] = feat[: min(fp["total_len"], feat.shape[0])]
@@ -600,6 +602,7 @@ with tabs[6]:
             st.write({"pred": class_names[pred_idx], "conf": conf})
             for k, name in enumerate(class_names):
                 st.write(f"{name}: {p_mean[k]:.3f} ± {p_std[k]:.3f}")
+
 
 
 
